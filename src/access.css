@@ -523,3 +523,14 @@ th button {
 .record-form .temperature-fields {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
+
+.account-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr));
+  align-items: start;
+  gap: 18px;
+  max-width: 900px;
+}
+.account-settings .account-form {
+  width: 100%;
+}

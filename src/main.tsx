@@ -1,3 +1,4 @@
+import { AccountSettings } from "./AccountSettings";
 import { MixturePicker } from "./MixturePicker";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -27,6 +28,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Settings,
   SlidersHorizontal,
   Thermometer,
   Trash2,
@@ -373,15 +375,17 @@ function App() {
     }
   }
   const pageTitle =
-    tab === "journal"
-      ? "Журнал контроля"
-      : tab === "users"
-        ? "Пользователи"
-        : tab === "reports"
-          ? "Ежедневные отчёты"
-          : tab === "corrections"
-            ? "Корректирующие действия"
-            : "База смесей";
+    tab === "account"
+      ? "Настройки аккаунта"
+      : tab === "journal"
+        ? "Журнал контроля"
+        : tab === "users"
+          ? "Пользователи"
+          : tab === "reports"
+            ? "Ежедневные отчёты"
+            : tab === "corrections"
+              ? "Корректирующие действия"
+              : "База смесей";
   const hasFilters = !!(search || mixFilter || status || from || to);
   return (
     <div className="app-shell">
@@ -483,6 +487,17 @@ function App() {
             <span className="signed-in">
               {user.name} · {user.role}
             </span>
+            {user.role === "KEYUSER" && (
+              <button
+                type="button"
+                title="Настройки аккаунта"
+                aria-label="Настройки аккаунта"
+                className="logout-button"
+                onClick={() => setTab("account")}
+              >
+                <Settings size={17} />
+              </button>
+            )}
             <button
               title="Выйти из системы"
               className="logout-button"
@@ -509,30 +524,34 @@ function App() {
             <div>
               <div className="eyebrow">
                 MIXCONTROL /{" "}
-                {tab === "journal"
-                  ? "TEMPERATURE LOG"
-                  : tab === "users"
-                    ? "TEAM & ACCESS"
-                    : tab === "reports"
-                      ? "DAILY REPORTS"
-                      : tab === "corrections"
-                        ? "CORRECTIVE ACTIONS"
-                        : "MIXTURE LIBRARY"}
+                {tab === "account"
+                  ? "ACCOUNT SETTINGS"
+                  : tab === "journal"
+                    ? "TEMPERATURE LOG"
+                    : tab === "users"
+                      ? "TEAM & ACCESS"
+                      : tab === "reports"
+                        ? "DAILY REPORTS"
+                        : tab === "corrections"
+                          ? "CORRECTIVE ACTIONS"
+                          : "MIXTURE LIBRARY"}
               </div>
               <h1>
                 {pageTitle}
                 <span className="heading-dot" />
               </h1>
               <p>
-                {tab === "journal"
-                  ? "Температурные показатели смесей. Вся история — в одном месте."
-                  : tab === "users"
-                    ? "Управление сотрудниками, ролями и доступом."
-                    : tab === "reports"
-                      ? "Статистика за день и история отклонений."
-                      : tab === "corrections"
-                        ? "Ответственные, выполненные работы и история изменений."
-                        : "Справочник смесей и допустимые температурные диапазоны."}
+                {tab === "account"
+                  ? "Изменение данных для входа KEYUSER."
+                  : tab === "journal"
+                    ? "Температурные показатели смесей. Вся история — в одном месте."
+                    : tab === "users"
+                      ? "Управление сотрудниками, ролями и доступом."
+                      : tab === "reports"
+                        ? "Статистика за день и история отклонений."
+                        : tab === "corrections"
+                          ? "Ответственные, выполненные работы и история изменений."
+                          : "Справочник смесей и допустимые температурные диапазоны."}
               </p>
             </div>
             {(tab === "journal" || (tab === "mixtures" && canManage)) && (
@@ -979,6 +998,10 @@ function App() {
                 setToast(message);
               }}
             />
+          ) : tab === "account" ? (
+            user.role === "KEYUSER" ? (
+              <AccountSettings />
+            ) : null
           ) : tab === "users" ? (
             <Users revision={revision} onSaved={saved} />
           ) : (

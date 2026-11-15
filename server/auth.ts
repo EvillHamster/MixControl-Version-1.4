@@ -32,6 +32,22 @@ const loginSchema = z
     /^[a-z0-9._-]{3,64}$/,
     "Логин: 3–64 латинских буквы, цифры, точка, дефис или подчёркивание",
   );
+const credentialChange = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("login"),
+      currentPassword: passwordSchema,
+      login: loginSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("password"),
+      currentPassword: passwordSchema,
+      password: passwordSchema,
+    })
+    .strict(),
+]);
 export const newUserSchema = z.object({
   login: loginSchema,
   name: z.string().trim().min(1, "Введите имя").max(120),
@@ -169,6 +185,71 @@ export const authService = {
     const { password_hash: _, deleted_at: _deleted, ...user } = u;
     return createSession(res, user);
   },
+  async changeOwnCredentials(req: Request, res: Response) {
+    const actor = currentUser(res);
+    const token = cookieToken(req);
+    if (!token) fail(401, "Войдите в систему");
+    const change = credentialChange.parse(req.body);
+    await transaction(async (c) => {
+      const account = (
+        await c.query<User & { password_hash: string }>(
+          `SELECT ${columns},password_hash FROM users WHERE id=$1 AND active AND deleted_at IS NULL FOR UPDATE`,
+          [actor.id],
+        )
+      ).rows[0];
+      if (!account || account.role !== "KEYUSER")
+        fail(403, "Настройки доступны только KEYUSER");
+      if (
+        account.version !== actor.version ||
+        !(
+          await c.query(
+            "SELECT 1 FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>now()",
+            [hashToken(token), actor.id],
+          )
+        ).rowCount
+      )
+        fail(401, "Сессия завершена. Войдите снова.");
+      if (
+        !(await verifyPassword(change.currentPassword, account.password_hash))
+      )
+        fail(403, "Текущий пароль неверен");
+      if (change.kind === "login") {
+        if (change.login === account.login) fail(400, "Укажите новый логин");
+        await c.query(
+          "UPDATE users SET login=$1,version=version+1 WHERE id=$2",
+          [change.login, actor.id],
+        );
+        await audit(
+          c,
+          account,
+          "user.self_login_change",
+          "users",
+          actor.id,
+          { login: account.login },
+          { login: change.login },
+        );
+      } else {
+        if (change.password === change.currentPassword)
+          fail(400, "Новый пароль должен отличаться от текущего");
+        const hash = await hashPassword(change.password);
+        await c.query(
+          "UPDATE users SET password_hash=$1,version=version+1 WHERE id=$2",
+          [hash, actor.id],
+        );
+        await audit(
+          c,
+          account,
+          "user.self_password_change",
+          "users",
+          actor.id,
+          null,
+          null,
+        );
+      }
+      await c.query("DELETE FROM sessions WHERE user_id=$1", [actor.id]);
+    });
+    res.clearCookie(cookieName, cookieOptions);
+  },
   async logout(req: Request, res: Response) {
     const token = cookieToken(req);
     if (token)
@@ -291,6 +372,8 @@ async function changeUser(
   actor: User,
   roleOnly: boolean,
 ) {
+  if (id === actor.id && actor.role === "KEYUSER" && d.password)
+    fail(403, "Свой пароль KEYUSER меняет в настройках аккаунта");
   const passwordHash = d.password ? await hashPassword(d.password) : null;
   return transaction(async (c) => {
     await c.query("SELECT pg_advisory_xact_lock(847202)");

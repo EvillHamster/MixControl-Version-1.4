@@ -778,9 +778,12 @@ test("Роли, миграция, совместная работа и сохр�
           )
         ).json();
         assert.equal(pending.total, 3);
+        const futureDate = new Date(Date.now() + 2 * 86_400_000)
+          .toISOString()
+          .slice(0, 10);
         const date = await (
           await call(
-            route + "&from=2026-11-10",
+            route + "&from=" + futureDate,
             "GET",
             undefined,
             employeeCookie,
@@ -1188,6 +1191,156 @@ test("Роли, миграция, совместная работа и сохр�
           );
           await rm(directory, { recursive: true, force: true });
         }
+      },
+    );
+    await t.test(
+      "KEYUSER меняет только собственный логин или пароль после проверки текущего пароля",
+      async () => {
+        const newLogin = "keyuser_v12";
+        const newPassword = "fresh-keyuser-password";
+        const loginChange = {
+          kind: "login",
+          login: newLogin,
+          currentPassword: password,
+        };
+        const passwordChange = {
+          kind: "password",
+          password: newPassword,
+          currentPassword: password,
+        };
+        const change = (body: object, token = rootCookie) =>
+          call("/auth/credentials", "PUT", body, token);
+        const signIn = (login: string, password: string) =>
+          call("/auth/login", "POST", { login, password });
+        const saved = async () =>
+          (
+            await pool.query(
+              "SELECT login,password_hash,version FROM users WHERE id=$1",
+              [root.id],
+            )
+          ).rows[0];
+        const before = await saved();
+        assert.equal((await change(loginChange, "")).status, 401);
+        const signedInEmployee = await signIn(employee.login, password);
+        assert.equal(signedInEmployee.status, 200);
+        for (const token of [adminCookie, cookie(signedInEmployee)]) {
+          assert.equal((await change(loginChange, token)).status, 403);
+          assert.equal((await change(passwordChange, token)).status, 403);
+        }
+        assert.equal(
+          (await change({ ...loginChange, id: admin.id })).status,
+          400,
+        );
+        assert.equal(
+          (await change({ ...loginChange, password: newPassword })).status,
+          400,
+        );
+        for (const body of [loginChange, passwordChange]) {
+          const bad = await change({ ...body, currentPassword: "incorrect" });
+          assert.equal(bad.status, 403);
+          assert.match((await bad.json()).message, /Текущий пароль неверен/);
+        }
+        const duplicate = await change({
+          ...loginChange,
+          login: admin.login.toUpperCase(),
+        });
+        assert.equal(duplicate.status, 409);
+        assert.match((await duplicate.json()).message, /логин/);
+        assert.equal(
+          (await change({ ...passwordChange, password: "abc" })).status,
+          400,
+        );
+        const profile = await (
+          await call("/auth/me", "GET", undefined, rootCookie)
+        ).json();
+        assert.equal(
+          (
+            await call(
+              "/users/" + root.id,
+              "PUT",
+              { ...profile, password: newPassword },
+              rootCookie,
+            )
+          ).status,
+          403,
+        );
+        assert.deepEqual(await saved(), before);
+
+        const other = await signIn(before.login, password);
+        assert.equal(other.status, 200);
+        const updatedLogin = await change({
+          ...loginChange,
+          login: newLogin.toUpperCase(),
+        });
+        assert.equal(updatedLogin.status, 204);
+        assert.match(
+          updatedLogin.headers.get("set-cookie") ?? "",
+          /mixcontrol_session=;/,
+        );
+        for (const token of [rootCookie, cookie(other)])
+          assert.equal(
+            (await call("/auth/me", "GET", undefined, token)).status,
+            401,
+          );
+        assert.equal((await signIn(before.login, password)).status, 401);
+        assert.equal((await saved()).password_hash, before.password_hash);
+
+        const login = await signIn(newLogin, password);
+        assert.equal(login.status, 200);
+        const newProfile = await login.json();
+        assert.equal(newProfile.id, root.id);
+        assert.equal(newProfile.role, "KEYUSER");
+        assert.equal(newProfile.login, newLogin);
+        assert.equal((await change(passwordChange, cookie(login))).status, 204);
+        assert.equal(
+          (await call("/auth/me", "GET", undefined, cookie(login))).status,
+          401,
+        );
+        assert.equal((await signIn(newLogin, password)).status, 401);
+
+        const valid = await signIn(newLogin, newPassword);
+        assert.equal(valid.status, 200);
+        assert.equal((await valid.json()).id, root.id);
+        const after = await saved();
+        assert.match(after.password_hash, /^scrypt\$/);
+        assert.notEqual(after.password_hash, newPassword);
+        assert.notEqual(after.password_hash, before.password_hash);
+        assert.equal(after.version, before.version + 2);
+        const { rows } = await pool.query(
+          "SELECT action,actor_id,before_data,after_data,details FROM audit_log WHERE entity_id=$1 AND action IN ('user.self_login_change','user.self_password_change') ORDER BY id",
+          [root.id],
+        );
+        assert.deepEqual(
+          rows.map((row) => row.action),
+          ["user.self_login_change", "user.self_password_change"],
+        );
+        assert.ok(rows.every((row) => row.actor_id === root.id));
+        assert.deepEqual(rows[0].after_data, { login: newLogin });
+        assert.equal(rows[1].before_data, null);
+        assert.equal(rows[1].after_data, null);
+        assert.doesNotMatch(
+          JSON.stringify(rows),
+          /scrypt|fresh-keyuser-password|password_hash/,
+        );
+        assert.equal((await change(passwordChange, cookie(valid))).status, 403);
+        assert.equal(
+          (
+            await change(
+              { ...passwordChange, currentPassword: newPassword },
+              cookie(valid),
+            )
+          ).status,
+          400,
+        );
+        assert.equal(
+          (
+            await change(
+              { ...passwordChange, currentPassword: newPassword },
+              cookie(valid),
+            )
+          ).status,
+          429,
+        );
       },
     );
     await t.test(

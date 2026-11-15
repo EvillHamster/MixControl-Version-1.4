@@ -88,6 +88,29 @@ app.use(
   }),
 );
 app.get("/api/auth/me", (_req, res) => res.json(currentUser(res)));
+const credentialLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  keyGenerator: (_req, res) => currentUser(res).id,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { message: "Слишком много попыток смены данных. Повторите позже." },
+});
+app.put(
+  "/api/auth/credentials",
+  (_req, res, next) => {
+    if (currentUser(res).role !== "KEYUSER") {
+      res.status(403).json({ message: "Настройки доступны только KEYUSER" });
+      return;
+    }
+    next();
+  },
+  credentialLimit,
+  async (req, res) => {
+    await authService.changeOwnCredentials(req, res);
+    res.status(204).end();
+  },
+);
 app.get("/api/events", changeStream);
 app.get("/api/users", requireUserManager, async (_req, res) =>
   res.json(await authService.listUsers()),

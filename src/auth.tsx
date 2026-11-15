@@ -12,6 +12,7 @@ type Auth = {
   user: User;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
+  endSession: (message: string) => void;
 };
 const AuthContext = createContext<Auth | null>(null);
 export function useAuth() {
@@ -23,7 +24,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null),
     [loading, setLoading] = useState(true),
     [setup, setSetup] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [notice, setNotice] = useState("");
   async function refresh() {
     try {
       setUser(await api<User>("/auth/me"));
@@ -56,10 +58,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
     window.addEventListener("mixcontrol:unauthorized", expired);
     return () => window.removeEventListener("mixcontrol:unauthorized", expired);
   }, []);
-  async function logout() {
-    await api("/auth/logout", { method: "POST" });
+  function endSession(message: string) {
+    setNotice(message);
     setUser(null);
     setSetup(false);
+  }
+  async function logout() {
+    await api("/auth/logout", { method: "POST" });
+    endSession("");
   }
   if (loading)
     return (
@@ -83,23 +89,27 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return (
       <LoginForm
         setup={setup}
+        notice={notice}
         onLogin={(u) => {
+          setNotice("");
           setUser(u);
           setSetup(false);
         }}
       />
     );
   return (
-    <AuthContext.Provider value={{ user, refresh, logout }}>
+    <AuthContext.Provider value={{ user, refresh, logout, endSession }}>
       {children}
     </AuthContext.Provider>
   );
 }
 function LoginForm({
   setup,
+  notice,
   onLogin,
 }: {
   setup: boolean;
+  notice: string;
   onLogin: (user: User) => void;
 }) {
   const [login, setLogin] = useState(""),
@@ -134,9 +144,10 @@ function LoginForm({
   return (
     <div className="auth-screen">
       <form className="auth-card" onSubmit={submit}>
+        {notice && <p role="status">{notice}</p>}
         {setup && (
           <label>
-            Имя администратора
+            Имя KEYUSER
             <input
               required
               autoComplete="name"
@@ -199,7 +210,7 @@ function LoginForm({
           ) : (
             <ArrowRight size={17} />
           )}{" "}
-          {setup ? "Создать администратора" : "Войти"}
+          {setup ? "Создать KEYUSER" : "Войти"}
         </button>
       </form>
     </div>

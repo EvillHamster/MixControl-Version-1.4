@@ -287,6 +287,7 @@ function UserForm({
   onClose: () => void;
 }) {
   const { user: actor } = useAuth();
+  const ownKeyuser = actor.role === "KEYUSER" && user?.id === actor.id;
   const [login, setLogin] = useState(user?.login ?? ""),
     [name, setName] = useState(user?.name ?? ""),
     [role, setRole] = useState<Role>(user?.role ?? "EMPLOYEE"),
@@ -308,7 +309,7 @@ function UserForm({
                 role,
                 active,
                 version: user.version,
-                ...(password ? { password } : {}),
+                ...(!ownKeyuser && password ? { password } : {}),
               }
             : { login, name, role, password },
         ),
@@ -382,7 +383,11 @@ function UserForm({
           </select>
         </label>
       </div>
-      {
+      {ownKeyuser ? (
+        <p className="modal-subtitle">
+          Свой пароль изменяйте в настройках аккаунта.
+        </p>
+      ) : (
         <label>
           {user ? "Новый пароль (необязательно)" : "Пароль"}
           <input
@@ -400,7 +405,7 @@ function UserForm({
             }
           />
         </label>
-      }
+      )}
       {user && (
         <label className="checkbox-label">
           <input
