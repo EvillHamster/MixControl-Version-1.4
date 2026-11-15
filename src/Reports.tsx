@@ -139,7 +139,11 @@ export function Reports({ revision }: { revision: number }) {
                       <td>{n(r.tMin)}</td>
                       <td>{n(r.tMax)}</td>
                       <td>{n(r.actual)}</td>
-                      <td className="deviation">{r.deviation}</td>
+                      <td className="deviation">
+                        {r.deviation
+                          .replaceAll(" выше на ", " ↑ ")
+                          .replaceAll(" ниже на ", " ↓ ")}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

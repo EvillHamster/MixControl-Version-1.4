@@ -1,3 +1,4 @@
+import { PasswordField } from "./PasswordField";
 import { useState, type FormEvent } from "react";
 import { api } from "./api";
 import { useAuth } from "./auth";
@@ -82,44 +83,50 @@ function CredentialForm({
         readOnly
         hidden
       />
-      <label>
-        Текущий пароль
-        <input
+      <PasswordField
+        label="Текущий пароль"
+        required
+        autoComplete="current-password"
+        minLength={4}
+        maxLength={128}
+        value={currentPassword}
+        onChange={(e) => setCurrentPassword(e.target.value)}
+      />
+      {isLogin ? (
+        <label>
+          Новый логин
+          <input
+            required
+            type="text"
+            autoComplete="off"
+            minLength={3}
+            maxLength={64}
+            pattern={"[A-Za-z0-9._\\-]{3,64}"}
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+          />
+        </label>
+      ) : (
+        <PasswordField
+          label="Новый пароль"
           required
-          type="password"
-          autoComplete="current-password"
+          autoComplete="new-password"
           minLength={4}
           maxLength={128}
-          value={currentPassword}
-          onChange={(e) => setCurrentPassword(e.target.value)}
-        />
-      </label>
-      <label>
-        {isLogin ? "Новый логин" : "Новый пароль"}
-        <input
-          required
-          type={isLogin ? "text" : "password"}
-          autoComplete={isLogin ? "off" : "new-password"}
-          minLength={isLogin ? 3 : 4}
-          maxLength={isLogin ? 64 : 128}
-          pattern={isLogin ? "[A-Za-z0-9._\\-]{3,64}" : undefined}
           value={next}
           onChange={(e) => setNext(e.target.value)}
         />
-      </label>
+      )}
       {!isLogin && (
-        <label>
-          Повторите новый пароль
-          <input
-            required
-            type="password"
-            autoComplete="new-password"
-            minLength={4}
-            maxLength={128}
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-          />
-        </label>
+        <PasswordField
+          label="Повторите новый пароль"
+          required
+          autoComplete="new-password"
+          minLength={4}
+          maxLength={128}
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+        />
       )}
       <p>После сохранения потребуется войти снова.</p>
       {error && (

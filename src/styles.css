@@ -726,19 +726,12 @@ tbody tr:hover {
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   font-size: 9px;
   padding: 4px 8px;
   border-radius: 5px;
   font-weight: 600;
   line-height: 1.3;
   white-space: nowrap;
-}
-.badge > span {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: currentColor;
 }
 .badge.OK {
   background: #edf1f6;
@@ -1144,7 +1137,8 @@ label {
   color: #616e7e;
 }
 label input,
-label select {
+label select,
+.password-field input {
   width: 100%;
   display: block;
   border: 1px solid #dce1e7;

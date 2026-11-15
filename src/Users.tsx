@@ -1,3 +1,4 @@
+import { PasswordField } from "./PasswordField";
 import { useEffect, useState } from "react";
 import {
   Check,
@@ -388,23 +389,20 @@ function UserForm({
           Свой пароль изменяйте в настройках аккаунта.
         </p>
       ) : (
-        <label>
-          {user ? "Новый пароль (необязательно)" : "Пароль"}
-          <input
-            type="password"
-            autoComplete="new-password"
-            required={!user}
-            minLength={4}
-            maxLength={128}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder={
-              user
-                ? "Оставьте пустым, чтобы сохранить пароль"
-                : "Не менее 4 символов"
-            }
-          />
-        </label>
+        <PasswordField
+          label={user ? "Новый пароль (необязательно)" : "Пароль"}
+          autoComplete="new-password"
+          required={!user}
+          minLength={4}
+          maxLength={128}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder={
+            user
+              ? "Оставьте пустым, чтобы сохранить пароль"
+              : "Не менее 4 символов"
+          }
+        />
       )}
       {user && (
         <label className="checkbox-label">

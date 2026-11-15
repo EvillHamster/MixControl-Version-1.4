@@ -1,10 +1,12 @@
-# MixControl 1.2
+# MixControl 1.3
 
 Первый запуск на другом Windows-ПК: [START-WINDOWS.md](START-WINDOWS.md).
 
 Запуск, размещение на рабочем сервере и GitHub: [DEPLOYMENT.md](DEPLOYMENT.md).
 
 Веб-приложение для ежедневного контроля температур смесей: React + TypeScript + Tailwind CSS, Node.js / Express и PostgreSQL. Рабочие данные хранятся только в PostgreSQL. Демонстрационные записи автоматически не создаются.
+
+В версии 1.3 добавлена кнопка показа вводимого пароля. В журнале статусы отображаются без точек, а в ежедневных отчётах стрелки показывают направление отклонения каждой температуры.
 
 ## Локальный запуск
 
@@ -38,7 +40,7 @@ npm run dev
 ### 1. Получить исходники и настроить окружение
 
 ```sh
-git clone --branch v1.2 https://github.com/EvillHamster/MixControl---V1.0.git mixcontrol
+git clone --branch v1.3 https://github.com/EvillHamster/MixControl---V1.0.git mixcontrol
 cd mixcontrol
 umask 077
 cp deploy/production.env.example .env

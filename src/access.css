@@ -209,7 +209,8 @@ nav button.active {
   line-height: 1.8;
   margin-bottom: 25px;
 }
-.auth-card > label {
+.auth-card > label,
+.auth-card > .password-field {
   margin-bottom: 18px;
   font-size: 12px;
 }
@@ -533,4 +534,33 @@ th button {
 }
 .account-settings .account-form {
   width: 100%;
+}
+
+.auth-card .password-field label {
+  font-size: inherit;
+}
+.password-field-control {
+  position: relative;
+}
+.password-field-control input {
+  padding-inline-end: 44px;
+}
+.password-field-control input::-ms-reveal {
+  display: none;
+}
+.password-field-toggle {
+  position: absolute;
+  inset-inline-end: 3px;
+  inset-block: 3px;
+  width: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  color: #546984;
+}
+.password-field-toggle:hover {
+  background: #edf3fb;
+}
+.password-field-toggle:focus-visible {
+  outline-offset: -2px;
 }

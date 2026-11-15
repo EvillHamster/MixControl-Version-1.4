@@ -1,5 +1,6 @@
 // Optional isolated browser QA; never points the app at the working database.
 import "dotenv/config";
+import assert from "node:assert/strict";
 import pg from "pg";
 import ExcelJS from "exceljs";
 import { randomBytes } from "node:crypto";
@@ -35,7 +36,7 @@ async function cleanup() {
   );
   await control.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
   await control.end();
-  process.exit();
+  process.exit(process.exitCode ?? 0);
 }
 process.on("SIGINT", cleanup);
 process.on("SIGTERM", cleanup);
@@ -106,7 +107,6 @@ for (let i = 0; i < 18; i++)
       Cookie: i % 2 ? employeeCookie : cookie,
     },
     body: JSON.stringify({
-      date: "2026-11-09",
       sup: String(9933451 + i),
       mixtureId: mixtures[i % 3],
       actual: i % 4 === 0 ? 165 : i % 5 === 0 ? null : 125,
@@ -125,24 +125,54 @@ sheet.addRow([
   "T(обор)",
   "Итог",
 ]);
-const yesterday = new Date(Date.now() - 86400000).toLocaleDateString("en-CA", {
-  timeZone: "Europe/Moscow",
-});
-for (const [sup, actual, equipment] of [
-  [9940001, 125, 123],
-  [9940002, 155, 145],
-  [9940003, 145, 155],
-])
-  sheet.addRow([
-    yesterday,
-    String(sup),
-    "M1 — T11430",
-    100,
-    150,
-    actual,
-    equipment,
-    "",
-  ]);
+const moscowDate = (daysAgo) =>
+  new Date(Date.now() - daysAgo * 86_400_000).toLocaleDateString("en-CA", {
+    timeZone: "Europe/Moscow",
+  });
+// Seed through the real journal import: ordinary record creation uses today's date.
+const scenarios = [
+  {
+    date: moscowDate(1),
+    temperatures: [
+      [125, 123],
+      [155, 145],
+      [145, 155],
+      [null, 125],
+      [155, 97],
+    ],
+    expected: { total: 5, ok: 1, nok: 3, pending: 1, nokPercent: 60 },
+  },
+  {
+    date: moscowDate(3),
+    temperatures: [
+      [100, 150],
+      ...Array.from({ length: 16 }, (_, i) => (i % 2 ? [120, 97] : [153, 130])),
+    ],
+    expected: { total: 17, ok: 1, nok: 16, pending: 0, nokPercent: 94.12 },
+  },
+  {
+    date: moscowDate(6),
+    temperatures: [
+      [120, 120],
+      [115, 115],
+    ],
+    expected: { total: 2, ok: 2, nok: 0, pending: 0, nokPercent: 0 },
+  },
+];
+let sup = 9940000;
+for (const { date, temperatures } of scenarios)
+  for (const [actual, equipment] of temperatures)
+    sheet.addRow([
+      date,
+      String(++sup),
+      "M1 — T11430",
+      100,
+      150,
+      actual,
+      equipment,
+      "",
+    ]);
+
 const preview = await fetch(base + "/records/import/preview", {
   method: "POST",
   headers: {
@@ -157,6 +187,45 @@ if (!preview.ok || previewData.errors?.length)
   throw new Error(JSON.stringify(previewData));
 const confirmed = await call("/records/import/confirm", { id: previewData.id });
 if (!confirmed.ok) throw new Error(await confirmed.text());
+const getReport = async (query = "") => {
+  const response = await fetch(base + "/reports" + query, {
+    headers: { Cookie: employeeCookie },
+  });
+  assert.equal(response.status, 200, await response.clone().text());
+  return response.json();
+};
+try {
+  const latest = await getReport();
+  assert.equal(latest.date, scenarios[0].date);
+  assert.deepEqual(
+    latest.dates,
+    scenarios.map(({ date }) => date),
+  );
+  assert.ok(latest.rows.some((row) => row.deviation.includes("T(fact)")));
+  assert.ok(latest.rows.some((row) => row.deviation.includes("T(обор)")));
+  assert.equal(
+    latest.rows.find((row) => row.sup === "9940005")?.deviation,
+    "T(fact) выше на 5 °C; T(обор) ниже на 3 °C",
+  );
+  for (const { date, expected } of scenarios) {
+    const report = await getReport("?date=" + date);
+    for (const [key, value] of Object.entries(expected))
+      assert.equal(report[key], value, date + ": " + key);
+    assert.equal(report.rows.length, Math.min(15, expected.nok));
+    const again = await getReport("?date=" + date);
+    assert.equal(again.version, report.version);
+  }
+  const second = await getReport("?date=" + scenarios[1].date + "&page=2");
+  assert.equal(second.rows.length, 1);
+  const gap = await getReport("?date=" + moscowDate(2));
+  assert.equal(gap.total, 0);
+  assert.ok(!gap.dates.includes(gap.date));
+} catch (error) {
+  console.error(error);
+  process.exitCode = 1;
+  await cleanup();
+}
+console.table(scenarios.map(({ date, expected }) => ({ date, ...expected })));
 console.log(
   JSON.stringify({
     url: `http://localhost:${port}`,

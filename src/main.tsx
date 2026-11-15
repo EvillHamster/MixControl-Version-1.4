@@ -70,7 +70,6 @@ const emptyData: Data = { records: [], total: 0, ok: 0, nok: 0, pending: 0 };
 function Badge({ status }: { status: string | null }) {
   return (
     <span className={`badge ${status ?? "pending"}`}>
-      <span />
       {status ?? "Ожидает"}
     </span>
   );

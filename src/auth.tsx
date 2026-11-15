@@ -1,3 +1,4 @@
+import { PasswordField } from "./PasswordField";
 import {
   createContext,
   useContext,
@@ -172,32 +173,26 @@ function LoginForm({
             autoFocus={!setup}
           />
         </label>
-        <label>
-          Пароль
-          <input
+        <PasswordField
+          label="Пароль"
+          required
+          autoComplete={setup ? "new-password" : "current-password"}
+          minLength={4}
+          maxLength={128}
+          placeholder={setup ? "Не менее 4 символов" : "Введите пароль"}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        {setup && (
+          <PasswordField
+            label="Повторите пароль"
             required
-            type="password"
-            autoComplete={setup ? "new-password" : "current-password"}
+            autoComplete="new-password"
             minLength={4}
             maxLength={128}
-            placeholder={setup ? "Не менее 4 символов" : "Введите пароль"}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
           />
-        </label>
-        {setup && (
-          <label>
-            Повторите пароль
-            <input
-              required
-              type="password"
-              autoComplete="new-password"
-              minLength={4}
-              maxLength={128}
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-            />
-          </label>
         )}
         {error && (
           <div className="form-error" role="alert">
