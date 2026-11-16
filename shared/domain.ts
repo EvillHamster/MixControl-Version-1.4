@@ -33,6 +33,7 @@ const temperature = z
   .finite()
   .min(-273.15, "Температура ниже абсолютного нуля")
   .max(10000, "Слишком высокая температура");
+export const mixtureRangeError = "T min не может превышать T max";
 export const mixtureSchema = z
   .object({
     name: z.string().trim().min(1, "Введите название").max(120),
@@ -41,7 +42,7 @@ export const mixtureSchema = z
     archived: z.boolean().optional(),
   })
   .refine((v) => v.tMin <= v.tMax, {
-    message: "T min не может превышать T max",
+    message: mixtureRangeError,
     path: ["tMax"],
   });
 export const recordSchema = z.object({

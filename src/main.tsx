@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import {
   result,
+  mixtureRangeError,
   recordSchema,
   type Measurement,
   type Mixture,
@@ -1513,13 +1514,11 @@ function MixtureForm({
     [max, setMax] = useState(mixture?.tMax?.toString() ?? ""),
     [saving, setSaving] = useState(false),
     [error, setError] = useState("");
+  const invalidRange = min !== "" && max !== "" && Number(min) > Number(max);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (invalidRange || saving) return;
     setError("");
-    if (Number(min) > Number(max)) {
-      setError("T min не может превышать T max");
-      return;
-    }
     setSaving(true);
     setBusy(true);
     try {
@@ -1583,10 +1582,17 @@ function MixtureForm({
             max="10000"
             value={max}
             onChange={(e) => setMax(e.target.value)}
+            aria-invalid={invalidRange || undefined}
+            aria-describedby={invalidRange ? "mixture-range-error" : undefined}
             placeholder="Максимум"
           />
         </label>
       </div>
+      {invalidRange && (
+        <div className="form-error" id="mixture-range-error" role="alert">
+          {mixtureRangeError}
+        </div>
+      )}
       <div className="form-info">
         <CircleHelp size={17} />
         <span>
@@ -1608,7 +1614,7 @@ function MixtureForm({
         >
           Отмена
         </button>
-        <button className="button primary" disabled={saving}>
+        <button className="button primary" disabled={saving || invalidRange}>
           {saving ? (
             <Loader2 size={16} className="spin" />
           ) : (
