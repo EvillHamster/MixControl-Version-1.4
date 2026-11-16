@@ -128,7 +128,7 @@ test("MixControl 1.4 end-to-end — SQL Server 2019", async (t) => {
       send("/auth/login", "POST", { login, password: pass });
     const setupBody = {
       name: "Основной пользователь",
-      login: "primary",
+      login: "primary-key",
       password,
     };
     const setup = await expect(send("/auth/setup", "POST", setupBody), 201);
@@ -169,7 +169,7 @@ test("MixControl 1.4 end-to-end — SQL Server 2019", async (t) => {
               "POST",
               {
                 name: "Сотрудник",
-                login: "employee1",
+                login: "employee_1",
                 password,
                 role: "EMPLOYEE",
               },
@@ -178,7 +178,7 @@ test("MixControl 1.4 end-to-end — SQL Server 2019", async (t) => {
             201,
           )
         ).json();
-        employee = cookie(await expect(sign("employee1"), 200));
+        employee = cookie(await expect(sign("employee_1"), 200));
         await expect(send("/users"), 401);
         await expect(send("/users", "GET", undefined, employee), 403);
         await expect(
@@ -611,7 +611,7 @@ test("MixControl 1.4 end-to-end — SQL Server 2019", async (t) => {
         ),
         204,
       );
-      await expect(sign("primary"), 401);
+      await expect(sign("primary-key"), 401);
       await expect(send("/auth/me", "GET", undefined, key), 401);
       const fresh = cookie(await expect(sign("newprimary"), 200));
       await expect(

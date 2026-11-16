@@ -2,7 +2,11 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { lock, pool, transaction } from "./db.js";
 
-const migrations = ["001-schema.sql", "002-workflow.sql"];
+const migrations = [
+  "001-schema.sql",
+  "002-workflow.sql",
+  "003-login-format.sql",
+];
 export async function migrate() {
   return transaction(async (db) => {
     const supported = (
