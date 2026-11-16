@@ -1,7 +1,8 @@
 import ExcelJS from "exceljs";
 import { z } from "zod";
-import { pool } from "./db.js";
-import { transaction, assertActor } from "./audit.js";
+import sql from "mssql";
+import { lock, output, pool } from "./db.js";
+import { transaction, assertActor, audit } from "./audit.js";
 import { fail } from "./repository.js";
 import {
   correctionUpdateSchema,
@@ -10,7 +11,7 @@ import {
 } from "../shared/workflow.js";
 import type { User } from "../shared/domain.js";
 const columns =
-  'c.id,c.measurement_key AS "measurementKey",c.measurement_id AS "measurementId",to_char(c.date,\'YYYY-MM-DD\') AS date,c.sup,c.mixture_name AS "mixtureName",c.actual,c.equipment,c.delta,c.initial_data AS "initialData",c.source_deleted AS "sourceDeleted",c.status,c.responsible_id AS "responsibleId",(SELECT name||CASE WHEN deleted_at IS NOT NULL THEN \' (удалён)\' WHEN NOT active THEN \' (отключён)\' ELSE \'\' END FROM users WHERE id=c.responsible_id) AS "responsibleName",c.work_done AS "workDone",c.detected_at AS "detectedAt",c.completed_at AS "completedAt",c.updated_at AS "updatedAt",c.version';
+  'c.id,c.measurement_key AS "measurementKey",c.measurement_id AS "measurementId",c.date,c.sup,c.mixture_name AS "mixtureName",c.actual,c.equipment,c.delta,c.initial_data AS "initialData",c.source_deleted AS "sourceDeleted",c.status,c.responsible_id AS "responsibleId",(SELECT name+CASE WHEN deleted_at IS NOT NULL THEN N\' (удалён)\' WHEN active=0 THEN N\' (отключён)\' ELSE \'\' END FROM users WHERE id=c.responsible_id) AS "responsibleName",c.work_done AS "workDone",c.detected_at AS "detectedAt",c.completed_at AS "completedAt",c.updated_at AS "updatedAt",c.version';
 function filters(input: Record<string, unknown>) {
   const q = z
     .object({
@@ -35,9 +36,9 @@ function filters(input: Record<string, unknown>) {
       ? "c.status='DONE'"
       : "c.status IN ('NOT_STARTED','IN_PROGRESS')",
   );
-  if (q.search) add("position(? in c.sup)>0", q.search.trim());
-  if (q.from) add("c.date>=?::date", q.from);
-  if (q.to) add("c.date<=?::date", q.to);
+  if (q.search) add("CHARINDEX(?,c.sup)>0", q.search.trim());
+  if (q.from) add("c.date>=CONVERT(date,?,23)", q.from);
+  if (q.to) add("c.date<=CONVERT(date,?,23)", q.to);
   if (q.status) add("c.status=?", q.status);
   if (q.responsibleId === "none") parts.push("c.responsible_id IS NULL");
   else if (q.responsibleId) add("c.responsible_id=?", q.responsibleId);
@@ -49,7 +50,7 @@ export const correctionRepository = {
   async summary() {
     return (
       await pool.query(
-        "SELECT count(*)::int AS active FROM corrective_actions WHERE status IN ('NOT_STARTED','IN_PROGRESS')",
+        "SELECT COUNT(*) AS active FROM corrective_actions WHERE status IN ('NOT_STARTED','IN_PROGRESS')",
       )
     ).rows[0];
   },
@@ -57,12 +58,9 @@ export const correctionRepository = {
     const { where, values } = filters(query),
       page = pageNumber(query.page);
     return transaction(async (c) => {
-      await c.query(
-        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
-      );
       const total = (
         await c.query(
-          "SELECT count(*)::int AS n FROM corrective_actions c" + where,
+          "SELECT COUNT(*) AS n FROM corrective_actions c" + where,
           values,
         )
       ).rows[0].n;
@@ -72,27 +70,25 @@ export const correctionRepository = {
             columns +
             " FROM corrective_actions c" +
             where +
-            " ORDER BY c.date DESC,c.detected_at DESC,c.id LIMIT 15 OFFSET $" +
-            (values.length + 1),
+            " ORDER BY c.date DESC,c.detected_at DESC,c.id OFFSET $" +
+            (values.length + 1) +
+            " ROWS FETCH NEXT 15 ROWS ONLY",
           [...values, (page - 1) * 15],
         )
       ).rows;
       return { rows, total, page, size: 15 };
-    });
+    }, sql.ISOLATION_LEVEL.SERIALIZABLE);
   },
   async assignees() {
     return (
       await pool.query(
-        "SELECT u.id,u.name||CASE WHEN u.deleted_at IS NOT NULL THEN ' (удалён)' WHEN NOT u.active THEN ' (отключён)' ELSE '' END AS name,u.role,(u.active AND u.deleted_at IS NULL AND u.role IN ('ADMIN','KEYUSER')) AS assignable FROM users u WHERE (u.active AND u.deleted_at IS NULL AND u.role IN ('ADMIN','KEYUSER')) OR EXISTS(SELECT 1 FROM corrective_actions c WHERE c.responsible_id=u.id) ORDER BY u.name,u.id",
+        "SELECT u.id,u.name+CASE WHEN u.deleted_at IS NOT NULL THEN N' (удалён)' WHEN u.active=0 THEN N' (отключён)' ELSE N'' END AS name,u.role,CONVERT(bit,CASE WHEN u.active=1 AND u.deleted_at IS NULL AND u.role IN ('ADMIN','KEYUSER') THEN 1 ELSE 0 END) AS assignable FROM dbo.users u WHERE (u.active=1 AND u.deleted_at IS NULL AND u.role IN ('ADMIN','KEYUSER')) OR EXISTS(SELECT 1 FROM dbo.corrective_actions c WHERE c.responsible_id=u.id) ORDER BY u.name,u.id",
       )
     ).rows;
   },
   async detail(id: string, query: Record<string, unknown> = {}) {
     const page = pageNumber(query.page);
     return transaction(async (c) => {
-      await c.query(
-        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
-      );
       const correction = (
         await c.query(
           "SELECT " + columns + " FROM corrective_actions c WHERE c.id=$1",
@@ -102,26 +98,27 @@ export const correctionRepository = {
       if (!correction) fail(404, "Корректировка не найдена");
       const events = (
         await c.query(
-          'SELECT id,kind,actor_name AS "actorName",actor_login AS "actorLogin",before_data AS before,after_data AS after,created_at AS "createdAt" FROM correction_events WHERE correction_id=$1 AND kind<>\'comment_added\' ORDER BY id DESC LIMIT 25 OFFSET $2',
+          'SELECT id,kind,actor_name AS "actorName",actor_login AS "actorLogin",before_data AS before,after_data AS after,created_at AS "createdAt" FROM correction_events WHERE correction_id=$1 AND kind<>\'comment_added\' ORDER BY id DESC OFFSET $2 ROWS FETCH NEXT 25 ROWS ONLY',
           [id, (page - 1) * 25],
         )
       ).rows;
       const counts = (
         await c.query(
-          "SELECT count(*)::int AS events FROM correction_events WHERE correction_id=$1 AND kind<>'comment_added'",
+          "SELECT COUNT(*) AS events FROM correction_events WHERE correction_id=$1 AND kind<>'comment_added'",
           [id],
         )
       ).rows[0];
       return { correction, events, eventTotal: counts.events, page };
-    });
+    }, sql.ISOLATION_LEVEL.SERIALIZABLE);
   },
   async update(id: string, body: unknown, actor: User) {
     const d = correctionUpdateSchema.parse(body);
     await transaction(async (c) => {
       await assertActor(c, actor, true);
+      await lock(c, "workflow");
       const old = (
         await c.query(
-          "SELECT c.*,(SELECT name FROM users WHERE id=c.responsible_id) AS responsible_name FROM corrective_actions c WHERE c.id=$1 FOR UPDATE",
+          "SELECT c.*,(SELECT name FROM users WHERE id=c.responsible_id) AS responsible_name FROM dbo.corrective_actions c WITH (UPDLOCK,HOLDLOCK) WHERE c.id=$1",
           [id],
         )
       ).rows[0];
@@ -134,7 +131,7 @@ export const correctionRepository = {
       if (d.responsibleId !== null && d.responsibleId !== old.responsible_id) {
         const person = (
           await c.query(
-            "SELECT 1 FROM users WHERE id=$1 AND active AND deleted_at IS NULL AND role IN ('ADMIN','KEYUSER') FOR SHARE",
+            "SELECT 1 FROM dbo.users WITH (HOLDLOCK) WHERE id=$1 AND active=1 AND deleted_at IS NULL AND role IN ('ADMIN','KEYUSER')",
             [d.responsibleId],
           )
         ).rowCount;
@@ -146,7 +143,10 @@ export const correctionRepository = {
       }
       const saved = (
         await c.query(
-          "UPDATE corrective_actions SET status=$1,responsible_id=$2,work_done=$3,completed_at=CASE WHEN $1='DONE' THEN COALESCE(completed_at,now()) ELSE NULL END,version=version+1,updated_at=now() WHERE id=$4 RETURNING *",
+          output(
+            "dbo.corrective_actions",
+            "UPDATE dbo.corrective_actions SET status=$1,responsible_id=$2,work_done=$3,completed_at=CASE WHEN $1='DONE' THEN COALESCE(completed_at,SYSUTCDATETIME()) ELSE NULL END,version=version+1,updated_at=SYSUTCDATETIME() /*output*/ WHERE id=$4",
+          ),
           [d.status, d.responsibleId, d.workDone, id],
         )
       ).rows[0];
@@ -158,8 +158,26 @@ export const correctionRepository = {
           ).rows[0]?.name
         : null;
       await c.query(
-        "SELECT correction_event($1,'updated',$2::jsonb,$3::jsonb)",
-        [id, JSON.stringify(old), JSON.stringify(saved)],
+        "INSERT dbo.correction_events(correction_id,kind,actor_id,actor_login,actor_name,before_data,after_data) VALUES($1,'updated',$2,$3,$4,$5,$6)",
+        [
+          id,
+          actor.id,
+          actor.login,
+          actor.name,
+          JSON.stringify(old),
+          JSON.stringify(saved),
+        ],
+      );
+      await audit(
+        c,
+        actor,
+        "correction.updated",
+        "corrective_actions",
+        id,
+        old,
+        saved,
+        {},
+        saved.sup,
       );
     });
     return this.detail(id);
@@ -172,7 +190,7 @@ export const correctionRepository = {
           columns +
           " FROM corrective_actions c" +
           where +
-          " ORDER BY c.date DESC,c.detected_at DESC,c.id LIMIT 100001",
+          " ORDER BY c.date DESC,c.detected_at DESC,c.id OFFSET 0 ROWS FETCH NEXT 100001 ROWS ONLY",
         values,
       )
     ).rows;

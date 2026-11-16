@@ -1,11 +1,16 @@
 import { z } from "zod";
-import type { PoolClient } from "pg";
-import { pool } from "./db.js";
+import { countsSql, lock, moscowDateSql, type DbClient } from "./db.js";
 import { transaction, audit } from "./audit.js";
 import { fail } from "./repository.js";
 import type { ReportRow } from "../shared/workflow.js";
 const clockSql =
-  "SELECT to_char((now() AT TIME ZONE 'Europe/Moscow')::date,'YYYY-MM-DD') AS today,to_char((now() AT TIME ZONE 'Europe/Moscow')::date-1,'YYYY-MM-DD') AS yesterday";
+  "SELECT " +
+  moscowDateSql +
+  " AS today,DATEADD(day,-1," +
+  moscowDateSql +
+  ") AS yesterday";
+const shiftDate = (date: string, days: number) =>
+  new Date(Date.parse(date) + days * 86400000).toISOString().slice(0, 10);
 function deviation(r: any) {
   const parts: string[] = [];
   for (const [key, title] of [
@@ -35,16 +40,9 @@ function deviation(r: any) {
       : "Отклонение не определено")
   );
 }
-async function rebuild(c: PoolClient, date: string, tryLock = false) {
-  const lock = (
-    await c.query(
-      "SELECT " +
-        (tryLock ? "pg_try_advisory_xact_lock" : "pg_advisory_xact_lock") +
-        "(847207,($1::date-'2000-01-01'::date)::int) AS locked",
-      [date],
-    )
-  ).rows[0];
-  if (tryLock && !lock.locked) return false;
+async function rebuild(c: DbClient, date: string, tryLock = false) {
+  if (!(await lock(c, "report:" + date, "Exclusive", tryLock ? 0 : 15000)))
+    return false;
   const old = (
     await c.query("SELECT * FROM daily_reports WHERE date=$1", [date])
   ).rows[0];
@@ -56,7 +54,7 @@ async function rebuild(c: PoolClient, date: string, tryLock = false) {
     return true;
   const stats = (
     await c.query(
-      "SELECT count(*)::int AS total,count(*) FILTER(WHERE status='OK')::int AS ok,count(*) FILTER(WHERE status='NOK')::int AS nok,count(*) FILTER(WHERE status IS NULL)::int AS pending FROM measurements WHERE date=$1",
+      "SELECT " + countsSql + " FROM dbo.measurements WHERE date=$1",
       [date],
     )
   ).rows[0];
@@ -65,7 +63,7 @@ async function rebuild(c: PoolClient, date: string, tryLock = false) {
     : 0;
   const rows = (
     await c.query(
-      "SELECT *,to_char(date,'YYYY-MM-DD') AS date FROM measurements WHERE date=$1 AND status='NOK' ORDER BY sup,id",
+      "SELECT date,id,sup,mixture_name,t_min,t_max,actual,equipment,legacy_pending FROM dbo.measurements WHERE date=$1 AND status='NOK' ORDER BY sup,id",
       [date],
     )
   ).rows.map(
@@ -118,7 +116,10 @@ async function rebuild(c: PoolClient, date: string, tryLock = false) {
   ) {
     const saved = (
       await c.query(
-        "INSERT INTO daily_reports(date,total,ok,nok,pending,nok_percent,nok_rows) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(date) DO UPDATE SET total=EXCLUDED.total,ok=EXCLUDED.ok,nok=EXCLUDED.nok,pending=EXCLUDED.pending,nok_percent=EXCLUDED.nok_percent,nok_rows=EXCLUDED.nok_rows,version=daily_reports.version+1,updated_at=now() RETURNING *",
+        (old
+          ? "UPDATE dbo.daily_reports SET total=$2,ok=$3,nok=$4,pending=$5,nok_percent=$6,nok_rows=$7,version=version+1,updated_at=SYSUTCDATETIME() WHERE date=$1"
+          : "INSERT INTO dbo.daily_reports(date,total,ok,nok,pending,nok_percent,nok_rows) VALUES($1,$2,$3,$4,$5,$6,$7)") +
+          "; SELECT * FROM dbo.daily_reports WHERE date=$1;",
         [
           date,
           stats.total,
@@ -158,30 +159,39 @@ async function rebuild(c: PoolClient, date: string, tryLock = false) {
 export async function runReportCycle(asOf?: string) {
   if (asOf) z.iso.date().parse(asOf);
   return transaction(async (c) => {
-    const locked = (
-      await c.query("SELECT pg_try_advisory_xact_lock(847206) AS locked")
-    ).rows[0].locked;
-    if (!locked) return;
-    const today = asOf ?? (await c.query(clockSql)).rows[0].today;
-    const range = (
-      await c.query(
-        "SELECT to_char($1::date-1,'YYYY-MM-DD') AS yesterday,to_char(LEAST(COALESCE(last_day,$1::date-2)+31,$1::date-1),'YYYY-MM-DD') AS finish,to_char(COALESCE(last_day,$1::date-2)+1,'YYYY-MM-DD') AS start FROM report_scheduler WHERE id=1",
-        [today],
-      )
-    ).rows[0];
-    const dates = (
-      await c.query(
-        "SELECT day FROM ((SELECT to_char(date,'YYYY-MM-DD') AS day FROM report_dirty_days WHERE date<$1::date ORDER BY date LIMIT 100) UNION (SELECT DISTINCT to_char(m.date,'YYYY-MM-DD') AS day FROM measurements m WHERE m.date<$1::date AND NOT EXISTS(SELECT 1 FROM daily_reports r WHERE r.date=m.date) ORDER BY day LIMIT 100) UNION SELECT to_char(d,'YYYY-MM-DD') FROM generate_series($2::date,$3::date,'1 day') d UNION SELECT $4::text) all_days ORDER BY day",
-        [today, range.start, range.finish, range.yesterday],
-      )
-    ).rows;
+    if (!(await lock(c, "workflow", "Exclusive", 0))) return;
+    const today = asOf ?? ((await c.query(clockSql)).rows[0].today as string);
+    const yesterday = shiftDate(today, -1);
+    const last =
+      (
+        await c.query<{ last_day: string | null }>(
+          "SELECT last_day FROM dbo.report_scheduler WHERE id=1",
+        )
+      ).rows[0].last_day ?? shiftDate(today, -2);
+    const finish = [shiftDate(last, 31), yesterday].sort()[0];
+    const dates = new Set<string>([yesterday]);
+    const dirty = await c.query<{ date: string }>(
+      "SELECT TOP (100) date FROM dbo.report_dirty_days WHERE date<$1 ORDER BY date",
+      [today],
+    );
+    const missing = await c.query<{ date: string }>(
+      "SELECT DISTINCT TOP (100) m.date FROM dbo.measurements m WHERE m.date<$1 AND NOT EXISTS(SELECT 1 FROM dbo.daily_reports r WHERE r.date=m.date) ORDER BY m.date",
+      [today],
+    );
+    for (const { date } of [...dirty.rows, ...missing.rows]) dates.add(date);
+    for (
+      let date = shiftDate(last, 1);
+      date <= finish;
+      date = shiftDate(date, 1)
+    )
+      dates.add(date);
     let skipped = false;
-    for (const { day } of dates)
+    for (const day of [...dates].sort())
       if (!(await rebuild(c, day, true))) skipped = true;
     if (!skipped)
       await c.query(
-        "UPDATE report_scheduler SET last_day=GREATEST(COALESCE(last_day,$1::date),$1::date) WHERE id=1",
-        [range.finish],
+        "UPDATE dbo.report_scheduler SET last_day=$1 WHERE id=1 AND (last_day IS NULL OR last_day<$1)",
+        [finish],
       );
   });
 }
@@ -193,23 +203,19 @@ export async function getDailyReport(query: Record<string, unknown>) {
     })
     .parse(query);
   return transaction(async (c) => {
-    // The shared workflow lock keeps a report and its source rows in one consistent state.
-    await c.query("SELECT pg_advisory_xact_lock_shared(847204)");
-    await c.query("SELECT pg_advisory_xact_lock(847206)");
+    // Serialize report rebuilds with measurement writes across server processes.
+    await lock(c, "workflow");
     const { yesterday } = (await c.query(clockSql)).rows[0],
       date = input.date ?? yesterday;
     if (date > yesterday)
       fail(400, "Ежедневный отчёт доступен за завершённые календарные дни");
     await rebuild(c, date);
     const saved = (
-      await c.query(
-        "SELECT *,to_char(date,'YYYY-MM-DD') AS date FROM daily_reports WHERE date=$1",
-        [date],
-      )
+      await c.query("SELECT * FROM dbo.daily_reports WHERE date=$1", [date])
     ).rows[0];
     const dates = (
       await c.query(
-        "SELECT DISTINCT to_char(date,'YYYY-MM-DD') AS date FROM measurements WHERE date<=$1::date ORDER BY date DESC",
+        "SELECT DISTINCT date FROM dbo.measurements WHERE date<=$1 ORDER BY date DESC",
         [yesterday],
       )
     ).rows.map((r) => r.date);

@@ -1,8 +1,9 @@
-import type { PoolClient } from "pg";
 import type { User } from "../shared/domain.js";
-import { pool } from "./db.js";
+import type { DbClient } from "./db.js";
+export { transaction } from "./db.js";
+
 export async function audit(
-  c: Pick<PoolClient, "query">,
+  c: DbClient,
   actor: User | null,
   action: string,
   entity: string,
@@ -13,7 +14,7 @@ export async function audit(
   sup: string | null = null,
 ) {
   await c.query(
-    "INSERT INTO audit_log(actor_id,actor_login,action,entity,entity_id,sup,before_data,after_data,details) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+    "INSERT INTO dbo.audit_log(actor_id,actor_login,action,entity,entity_id,sup,before_data,after_data,details) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
     [
       actor?.id ?? null,
       actor?.login ?? "system",
@@ -27,29 +28,11 @@ export async function audit(
     ],
   );
 }
-export async function transaction<T>(work: (c: PoolClient) => Promise<T>) {
-  const c = await pool.connect();
-  try {
-    await c.query("BEGIN");
-    const value = await work(c);
-    await c.query("COMMIT");
-    return value;
-  } catch (e) {
-    await c.query("ROLLBACK");
-    throw e;
-  } finally {
-    c.release();
-  }
-}
 
-export async function assertActor(
-  c: Pick<PoolClient, "query">,
-  actor: User,
-  manager = false,
-) {
+export async function assertActor(c: DbClient, actor: User, manager = false) {
   const user = (
     await c.query(
-      "SELECT role FROM users WHERE id=$1 AND active AND deleted_at IS NULL FOR SHARE",
+      "SELECT role FROM dbo.users WITH (HOLDLOCK) WHERE id=$1 AND active=1 AND deleted_at IS NULL",
       [actor.id],
     )
   ).rows[0];
@@ -60,9 +43,9 @@ export async function assertActor(
   await setAuditActor(c, actor);
 }
 
-export async function setAuditActor(c: Pick<PoolClient, "query">, actor: User) {
+export async function setAuditActor(c: DbClient, actor: User) {
   await c.query(
-    "SELECT set_config('mixcontrol.actor_id',$1,true),set_config('mixcontrol.actor_login',$2,true),set_config('mixcontrol.actor_name',$3,true)",
+    "EXEC sys.sp_set_session_context @key=N'actor_id', @value=$1; EXEC sys.sp_set_session_context @key=N'actor_login', @value=$2; EXEC sys.sp_set_session_context @key=N'actor_name', @value=$3;",
     [actor.id, actor.login, actor.name],
   );
 }

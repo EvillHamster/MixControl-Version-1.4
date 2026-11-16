@@ -352,33 +352,37 @@ app.use(
       res.end();
       return;
     }
-    const referenced = ["23503", "23001"].includes(error.code);
+    const unique = [2601, 2627].includes(error.number);
+    const referenced =
+      error.number === 547 && /REFERENCE|FOREIGN KEY/i.test(error.message);
+    const invalid = error.number === 547 && !referenced;
+    const names = (name: string) => error.message.includes(name);
     const code =
       error instanceof z.ZodError
         ? 400
-        : error.code === "23505"
+        : unique
           ? 409
           : referenced
             ? 409
-            : error.code === "23514"
+            : invalid
               ? 400
               : (error.status ?? 503);
     res.status(code).json({
       message:
         error instanceof z.ZodError
           ? error.issues.map((x) => x.message).join(". ")
-          : error.code === "23505"
-            ? error.constraint === "users_single_keyuser"
+          : unique
+            ? names("users_single_keyuser")
               ? "В системе уже есть KEYUSER. Эта роль может быть только у одного пользователя."
-              : error.constraint === "users_login_key"
+              : names("users_login_unique")
                 ? "Такой логин уже существует"
-                : error.constraint === "measurements_sup_key"
+                : names("measurements_sup_unique")
                   ? "Такой SUP уже существует. Укажите уникальный идентификатор."
                   : "Запись с такими уникальными данными уже существует."
             : referenced
               ? "Смесь используется в журнале. Архивируйте её вместо удаления."
-              : error.code === "23514"
-                ? error.constraint === "measurements_sup_seven_digits"
+              : invalid
+                ? names("measurements_sup_seven_digits")
                   ? "SUP должен содержать ровно 7 цифр"
                   : "Некорректные значения температур"
                 : error.status
@@ -394,7 +398,7 @@ const sessionCleanup = setInterval(
   () =>
     void pool
       .query(
-        "DELETE FROM sessions WHERE expires_at<now(); DELETE FROM import_jobs WHERE expires_at<now()",
+        "DELETE FROM sessions WHERE expires_at<SYSUTCDATETIME(); DELETE FROM import_jobs WHERE expires_at<SYSUTCDATETIME()",
       )
       .catch((e) => console.error(e.message)),
   60 * 60 * 1000,

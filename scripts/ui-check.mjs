@@ -1,24 +1,25 @@
 // Optional isolated browser QA; never points the app at the working database.
 import "dotenv/config";
 import assert from "node:assert/strict";
-import pg from "pg";
+import sql from "mssql";
+import { sqlConfig } from "../server/db.ts";
 import ExcelJS from "exceljs";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-const control = new pg.Client({ connectionString: process.env.DATABASE_URL });
-const database = "mixcontrol_test_ui_" + randomBytes(6).toString("hex");
-const port = 3002;
+if (process.env.SQLSERVER_ALLOW_TEMP_DATABASES !== "true")
+  throw new Error(
+    "Для тестового экземпляра установите SQLSERVER_ALLOW_TEMP_DATABASES=true. Скрипт создаёт и удаляет отдельную базу.",
+  );
+const control = new sql.ConnectionPool(sqlConfig("master"));
+const database = "MixControlTest_UI_" + randomBytes(6).toString("hex");
+const port = Number(process.env.SQLSERVER_PREVIEW_PORT ?? 3003);
 const base = `http://127.0.0.1:${port}/api`;
 await control.connect();
-await control.query(
-  `CREATE DATABASE "${database}" TEMPLATE template0 ENCODING 'UTF8'`,
-);
-const url = new URL(process.env.DATABASE_URL);
-url.pathname = "/" + database;
+await control.request().query("CREATE DATABASE [" + database + "];");
 const server = spawn(process.execPath, ["--import", "tsx", "server/index.ts"], {
   env: {
     ...process.env,
-    DATABASE_URL: url.toString(),
+    SQLSERVER_DATABASE: database,
     PORT: String(port),
     HOST: "127.0.0.1",
     COOKIE_SECURE: "false",
@@ -34,8 +35,16 @@ async function cleanup() {
   await new Promise((resolve) =>
     server.exitCode !== null ? resolve() : server.once("exit", resolve),
   );
-  await control.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
-  await control.end();
+  await control
+    .request()
+    .query(
+      "ALTER DATABASE [" +
+        database +
+        "] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [" +
+        database +
+        "];",
+    );
+  await control.close();
   process.exit(process.exitCode ?? 0);
 }
 process.on("SIGINT", cleanup);

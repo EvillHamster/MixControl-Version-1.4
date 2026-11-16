@@ -1,42 +1,47 @@
-import pg from "pg";
+import { pool } from "./db.js";
 import type { RequestHandler, Response } from "express";
 import { currentUser } from "./auth.js";
-// One PostgreSQL LISTEN connection per Node process, not per connected employee.
-let listener: pg.Client | null = null;
+// Each process reads only five committed counters, regardless of connected tabs.
+let timer: ReturnType<typeof setTimeout> | undefined;
 let stopped = false;
-let retry: ReturnType<typeof setTimeout> | undefined;
+let pending: Promise<void> | undefined;
+let previous: Map<string, string> | undefined;
 const clients = new Map<Response, string>();
+function broadcast(topic: string) {
+  for (const res of clients.keys())
+    res.write(`event: change\ndata: ${JSON.stringify(topic)}\n\n`);
+}
 export async function startEvents() {
-  if (stopped) return;
-  const connection = new pg.Client({
-    connectionString: process.env.DATABASE_URL,
-    connectionTimeoutMillis: 5000,
-  });
-  listener = connection;
-  const recover = () => {
-    if (listener !== connection || stopped) return;
-    listener = null;
-    void connection.end().catch(() => {});
-    if (!retry)
-      retry = setTimeout(() => {
-        retry = undefined;
-        void startEvents();
-      }, 3000);
+  stopped = false;
+  const poll = async () => {
+    try {
+      const { rows } = await pool.query<{ topic: string; revision: string }>(
+        "SET LOCK_TIMEOUT 2000; SELECT topic,CONVERT(varchar(20),revision) AS revision FROM dbo.change_revision;",
+      );
+      const next = new Map(
+        rows.map(({ topic, revision }) => [topic, revision]),
+      );
+      if (!previous) broadcast("reconnected");
+      else
+        for (const [topic, revision] of next)
+          if (previous.get(topic) !== revision) broadcast(topic);
+      previous = next;
+    } catch {
+      previous = undefined;
+    }
   };
-  connection.on("error", recover);
-  connection.on("end", recover);
-  connection.on("notification", (message) => {
-    for (const res of clients.keys())
-      res.write(`event: change\ndata: ${JSON.stringify(message.payload)}\n\n`);
-  });
-  try {
-    await connection.connect();
-    await connection.query("LISTEN mixcontrol_changes");
-    for (const res of clients.keys())
-      res.write('event: change\ndata: "reconnected"\n\n');
-  } catch {
-    recover();
-  }
+  const tick = () => {
+    if (stopped) return;
+    pending = poll().finally(() => {
+      pending = undefined;
+      if (!stopped) {
+        timer = setTimeout(tick, 1000);
+        timer.unref();
+      }
+    });
+  };
+  tick();
+  await pending;
 }
 export const changeStream: RequestHandler = (req, res) => {
   const userId = currentUser(res).id;
@@ -60,8 +65,8 @@ export const changeStream: RequestHandler = (req, res) => {
 };
 export async function stopEvents() {
   stopped = true;
-  if (retry) clearTimeout(retry);
+  if (timer) clearTimeout(timer);
   for (const res of clients.keys()) res.end();
   clients.clear();
-  await listener?.end().catch(() => {});
+  await pending;
 }

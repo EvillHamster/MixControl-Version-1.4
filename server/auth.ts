@@ -1,7 +1,7 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import type { RequestHandler, Response, Request } from "express";
 import { z } from "zod";
-import { pool } from "./db.js";
+import { lock, output, pool, type DbClient } from "./db.js";
 import { audit, transaction } from "./audit.js";
 import {
   assignableRoles,
@@ -90,7 +90,7 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
   const token = cookieToken(req);
   if (!token) fail(401, "Войдите в систему");
   const r = await pool.query<User>(
-    `SELECT u.id,u.login,u.name,u.role,u.active,u.version FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active AND u.deleted_at IS NULL`,
+    `SELECT u.id,u.login,u.name,u.role,u.active,u.version FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>SYSUTCDATETIME() AND u.active=1 AND u.deleted_at IS NULL`,
     [hashToken(token)],
   );
   if (!r.rows[0]) fail(401, "Сессия завершена. Войдите снова.");
@@ -117,13 +117,13 @@ async function createSession(res: Response, user: User) {
   const token = randomBytes(32).toString("hex");
   await transaction(async (c) => {
     const current = await c.query(
-      "SELECT id FROM users WHERE id=$1 AND active AND deleted_at IS NULL AND version=$2 FOR SHARE",
+      "SELECT id FROM dbo.users WITH (HOLDLOCK) WHERE id=$1 AND active=1 AND deleted_at IS NULL AND version=$2",
       [user.id, user.version],
     );
     if (!current.rowCount)
       fail(401, "Учётная запись изменена или удалена. Войдите снова.");
     await c.query(
-      "INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '12 hours')",
+      "INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,DATEADD(hour,12,SYSUTCDATETIME()))",
       [hashToken(token), user.id],
     );
   });
@@ -136,37 +136,34 @@ async function createSession(res: Response, user: User) {
 export const authService = {
   async status() {
     return {
-      needsSetup: !(await pool.query("SELECT 1 FROM users LIMIT 1")).rowCount,
+      needsSetup: !(await pool.query("SELECT TOP (1) 1 FROM dbo.users"))
+        .rowCount,
     };
   },
   async setup(body: unknown, res: Response) {
     const d = newUserSchema.omit({ role: true }).parse(body);
     const passwordHash = await hashPassword(d.password);
-    const c = await pool.connect();
-    let user: User;
-    try {
-      await c.query("BEGIN");
-      await c.query("SELECT pg_advisory_xact_lock(847202)");
-      if ((await c.query("SELECT 1 FROM users LIMIT 1")).rowCount)
+    const user = await transaction(async (c) => {
+      await lock(c, "users");
+      if ((await c.query("SELECT TOP (1) 1 FROM dbo.users")).rowCount)
         fail(409, "Первоначальная настройка уже выполнена");
-      user = (
+      const user = (
         await c.query<User>(
-          `INSERT INTO users(login,name,password_hash,role) VALUES($1,$2,$3,'KEYUSER') RETURNING ${columns}`,
+          output(
+            "dbo.users",
+            "INSERT INTO dbo.users(login,name,password_hash,role) /*output*/ VALUES($1,$2,$3,'KEYUSER')",
+            columns,
+          ),
           [d.login, d.name, passwordHash],
         )
       ).rows[0];
       await c.query(
-        "UPDATE measurements SET created_by=$1 WHERE created_by IS NULL AND sup ~ '^[0-9]{7}$'",
+        "UPDATE dbo.measurements SET created_by=$1 WHERE created_by IS NULL AND DATALENGTH(sup)=14 AND sup NOT LIKE N'%[^0-9]%'",
         [user.id],
       );
       await audit(c, user, "user.create", "users", user.id, null, user);
-      await c.query("COMMIT");
-    } catch (e) {
-      await c.query("ROLLBACK");
-      throw e;
-    } finally {
-      c.release();
-    }
+      return user;
+    });
     return createSession(res, user);
   },
   async login(body: unknown, res: Response) {
@@ -193,7 +190,7 @@ export const authService = {
     await transaction(async (c) => {
       const account = (
         await c.query<User & { password_hash: string }>(
-          `SELECT ${columns},password_hash FROM users WHERE id=$1 AND active AND deleted_at IS NULL FOR UPDATE`,
+          `SELECT ${columns},password_hash FROM dbo.users WITH (UPDLOCK,HOLDLOCK) WHERE id=$1 AND active=1 AND deleted_at IS NULL`,
           [actor.id],
         )
       ).rows[0];
@@ -203,7 +200,7 @@ export const authService = {
         account.version !== actor.version ||
         !(
           await c.query(
-            "SELECT 1 FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>now()",
+            "SELECT 1 FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>SYSUTCDATETIME()",
             [hashToken(token), actor.id],
           )
         ).rowCount
@@ -279,13 +276,17 @@ export const authService = {
     const d = newUserSchema.parse(body);
     const passwordHash = await hashPassword(d.password);
     return transaction(async (c) => {
-      await c.query("SELECT pg_advisory_xact_lock(847202)");
+      await lock(c, "users");
       const manager = await managerInTransaction(c, actor);
       if (!assignableRoles(manager).includes(d.role))
         fail(403, "Назначать роль KEYUSER может только KEYUSER");
       const user = (
         await c.query<User>(
-          `INSERT INTO users(login,name,password_hash,role) VALUES($1,$2,$3,$4) RETURNING ${columns}`,
+          output(
+            "dbo.users",
+            "INSERT INTO dbo.users(login,name,password_hash,role) /*output*/ VALUES($1,$2,$3,$4)",
+            columns,
+          ),
           [d.login, d.name, passwordHash, d.role],
         )
       ).rows[0];
@@ -298,11 +299,11 @@ export const authService = {
   },
   async deleteUser(id: string, version: number, actor: User) {
     return transaction(async (c) => {
-      await c.query("SELECT pg_advisory_xact_lock(847202)");
+      await lock(c, "users");
       const manager = await managerInTransaction(c, actor);
       const target = (
         await c.query<User>(
-          `SELECT ${columns} FROM users WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`,
+          `SELECT ${columns} FROM dbo.users WITH (UPDLOCK,HOLDLOCK) WHERE id=$1 AND deleted_at IS NULL`,
           [id],
         )
       ).rows[0];
@@ -316,7 +317,11 @@ export const authService = {
       await protectKeyuser(c, target, "EMPLOYEE", false);
       const deleted = (
         await c.query(
-          `UPDATE users SET login=NULL,password_hash=NULL,active=false,deleted_at=now(),version=version+1 WHERE id=$1 RETURNING ${columns},deleted_at`,
+          output(
+            "dbo.users",
+            "UPDATE dbo.users SET login=NULL,password_hash=NULL,active=0,deleted_at=SYSUTCDATETIME(),version=version+1 /*output*/ WHERE id=$1",
+            columns + ",deleted_at",
+          ),
           [id],
         )
       ).rows[0];
@@ -326,10 +331,10 @@ export const authService = {
     });
   },
 };
-async function managerInTransaction(c: import("pg").PoolClient, actor: User) {
+async function managerInTransaction(c: DbClient, actor: User) {
   const manager = (
     await c.query<User>(
-      `SELECT ${columns} FROM users WHERE id=$1 AND active AND deleted_at IS NULL FOR SHARE`,
+      `SELECT ${columns} FROM dbo.users WITH (HOLDLOCK) WHERE id=$1 AND active=1 AND deleted_at IS NULL`,
       [actor.id],
     )
   ).rows[0];
@@ -338,7 +343,7 @@ async function managerInTransaction(c: import("pg").PoolClient, actor: User) {
   return manager;
 }
 async function protectKeyuser(
-  c: import("pg").PoolClient,
+  c: DbClient,
   target: User,
   role: string,
   active: boolean,
@@ -350,7 +355,7 @@ async function protectKeyuser(
   ) {
     const count = (
       await c.query(
-        "SELECT count(*)::int AS n FROM users WHERE role='KEYUSER' AND active AND deleted_at IS NULL",
+        "SELECT COUNT(*) AS n FROM users WHERE role='KEYUSER' AND active=1 AND deleted_at IS NULL",
       )
     ).rows[0].n;
     if (count <= 1)
@@ -376,11 +381,11 @@ async function changeUser(
     fail(403, "Свой пароль KEYUSER меняет в настройках аккаунта");
   const passwordHash = d.password ? await hashPassword(d.password) : null;
   return transaction(async (c) => {
-    await c.query("SELECT pg_advisory_xact_lock(847202)");
+    await lock(c, "users");
     const manager = await managerInTransaction(c, actor);
     const target = (
       await c.query<User>(
-        `SELECT ${columns} FROM users WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`,
+        `SELECT ${columns} FROM dbo.users WITH (UPDLOCK,HOLDLOCK) WHERE id=$1 AND deleted_at IS NULL`,
         [id],
       )
     ).rows[0];
@@ -395,7 +400,11 @@ async function changeUser(
     await protectKeyuser(c, target, d.role, active);
     const updated = (
       await c.query<User>(
-        `UPDATE users SET name=$1,role=$2,active=$3,password_hash=COALESCE($4,password_hash),version=version+1 WHERE id=$5 RETURNING ${columns}`,
+        output(
+          "dbo.users",
+          "UPDATE dbo.users SET name=$1,role=$2,active=$3,password_hash=COALESCE($4,password_hash),version=version+1 /*output*/ WHERE id=$5",
+          columns,
+        ),
         [roleOnly ? target.name : d.name, d.role, active, passwordHash, id],
       )
     ).rows[0];

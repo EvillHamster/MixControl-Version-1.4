@@ -1,0 +1,47 @@
+name: SQL Server 2019 validation
+
+on:
+  push:
+    branches: [main, version/1.4]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      SQLSERVER_HOST: 127.0.0.1
+      SQLSERVER_PORT: 1433
+      SQLSERVER_DATABASE: master
+      SQLSERVER_USER: sa
+      SQLSERVER_TRUST_CERTIFICATE: true
+      SQLSERVER_TEST_DATABASE: MixControlTest_API
+      SQLSERVER_TEST_RESTORE_DATABASE: MixControlTest_Restore
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.14.0"
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Start an isolated SQL Server 2019
+        shell: bash
+        run: |
+          password="QaOnly-Aa-$(openssl rand -hex 16)"
+          echo "::add-mask::$password"
+          echo "SQLSERVER_PASSWORD=$password" >> "$GITHUB_ENV"
+          docker run --detach --name mixcontrol-sql2019 \
+            -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD="$password" \
+            -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2019-latest
+      - name: Create two empty test databases
+        run: node --import tsx tests/provision-mssql.ts
+      - run: npm run test:integration
+      - name: SQL Server log on failure
+        if: failure()
+        run: docker logs --tail 120 mixcontrol-sql2019

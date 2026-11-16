@@ -1,8 +1,8 @@
 import ExcelJS from "exceljs";
 import { createHash } from "node:crypto";
-import type { PoolClient } from "pg";
 import { z } from "zod";
-import { pool } from "./db.js";
+import sql from "mssql";
+import { lock, output, pool, type DbClient } from "./db.js";
 import { audit, transaction, setAuditActor } from "./audit.js";
 import { fail } from "./repository.js";
 import {
@@ -169,14 +169,16 @@ function archived(value: unknown) {
   throw new Error("Статус смеси: «В работе» или «В архиве»");
 }
 async function plan(
-  c: PoolClient,
+  c: DbClient,
   kind: ImportKind,
   source: Source[],
-  lock = false,
+  locked = false,
 ) {
   const mixtures = (
     await c.query(
-      "SELECT * FROM mixtures ORDER BY id" + (lock ? " FOR UPDATE" : ""),
+      "SELECT * FROM dbo.mixtures" +
+        (locked ? " WITH (UPDLOCK,HOLDLOCK)" : "") +
+        " ORDER BY id",
     )
   ).rows;
   const names = new Map<string, any[]>();
@@ -189,9 +191,10 @@ async function plan(
     kind === "records"
       ? (
           await c.query(
-            "SELECT * FROM measurements WHERE sup=ANY($1::text[]) ORDER BY sup" +
-              (lock ? " FOR UPDATE" : ""),
-            [sups],
+            "SELECT * FROM dbo.measurements" +
+              (locked ? " WITH (UPDLOCK,HOLDLOCK)" : "") +
+              " WHERE sup IN (SELECT [value] COLLATE Latin1_General_100_BIN2 FROM OPENJSON($1)) ORDER BY sup",
+            [JSON.stringify(sups)],
           )
         ).rows
       : [];
@@ -344,13 +347,12 @@ export async function previewImport(
 ): Promise<ImportPreview> {
   const source = await readImport(buffer, kind);
   return transaction(async (c) => {
-    await c.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
     const preview = await plan(c, kind, source);
     let id: string | undefined;
     if (!preview.errorCount)
       id = (
         await c.query(
-          "INSERT INTO import_jobs(actor_id,kind,payload) VALUES($1,$2,$3) RETURNING id",
+          "INSERT INTO dbo.import_jobs(actor_id,kind,payload) OUTPUT inserted.id VALUES($1,$2,$3)",
           [
             actor.id,
             kind,
@@ -363,23 +365,23 @@ export async function previewImport(
       id,
       rows: preview.rows.map(({ old, mixture, ...r }) => r),
     };
-  });
+  }, sql.ISOLATION_LEVEL.SERIALIZABLE);
 }
 export async function confirmImport(id: string, kind: ImportKind, actor: User) {
   return transaction(async (c) => {
     const current = (
       await c.query(
-        "SELECT role FROM users WHERE id=$1 AND active AND deleted_at IS NULL FOR SHARE",
+        "SELECT role FROM dbo.users WITH (HOLDLOCK) WHERE id=$1 AND active=1 AND deleted_at IS NULL",
         [actor.id],
       )
     ).rows[0];
     if (!current || current.role === "EMPLOYEE")
       fail(403, "Импорт доступен только KEYUSER и ADMIN");
     await setAuditActor(c, actor);
-    await c.query("SELECT pg_advisory_xact_lock(847204)");
+    await lock(c, "workflow");
     const job = (
       await c.query(
-        "SELECT * FROM import_jobs WHERE id=$1 AND actor_id=$2 AND kind=$3 AND expires_at>now() AND consumed_at IS NULL FOR UPDATE",
+        "SELECT * FROM dbo.import_jobs WITH (UPDLOCK,HOLDLOCK) WHERE id=$1 AND actor_id=$2 AND kind=$3 AND expires_at>SYSUTCDATETIME() AND consumed_at IS NULL",
         [id, actor.id, kind],
       )
     ).rows[0];
@@ -403,13 +405,19 @@ export async function confirmImport(id: string, kind: ImportKind, actor: User) {
         saved = r.old
           ? (
               await c.query(
-                "UPDATE mixtures SET name=$1,t_min=$2,t_max=$3,archived=$4 WHERE id=$5 RETURNING *",
+                output(
+                  "dbo.mixtures",
+                  "UPDATE dbo.mixtures SET name=$1,t_min=$2,t_max=$3,archived=$4 /*output*/ WHERE id=$5",
+                ),
                 [r.name, r.tMin, r.tMax, r.archived, r.old.id],
               )
             ).rows[0]
           : (
               await c.query(
-                "INSERT INTO mixtures(name,t_min,t_max,archived) VALUES($1,$2,$3,$4) RETURNING *",
+                output(
+                  "dbo.mixtures",
+                  "INSERT INTO dbo.mixtures(name,t_min,t_max,archived) /*output*/ VALUES($1,$2,$3,$4)",
+                ),
                 [r.name, r.tMin, r.tMax, r.archived],
               )
             ).rows[0];
@@ -427,13 +435,19 @@ export async function confirmImport(id: string, kind: ImportKind, actor: User) {
         saved = r.old
           ? (
               await c.query(
-                "UPDATE measurements SET date=$1,sup=$2,mixture_id=$3,mixture_name=$4,t_min=$5,t_max=$6,actual=$7,equipment=$8,legacy_pending=CASE WHEN $7::double precision IS NOT NULL THEN false ELSE legacy_pending END,version=version+1,updated_at=now() WHERE id=$9 RETURNING *",
+                output(
+                  "dbo.measurements",
+                  "UPDATE dbo.measurements SET date=$1,sup=$2,mixture_id=$3,mixture_name=$4,t_min=$5,t_max=$6,actual=$7,equipment=$8,legacy_pending=CASE WHEN $7 IS NOT NULL THEN 0 ELSE legacy_pending END,version=version+1,updated_at=SYSUTCDATETIME() /*output*/ WHERE id=$9",
+                ),
                 [...args, r.old.id],
               )
             ).rows[0]
           : (
               await c.query(
-                "INSERT INTO measurements(date,sup,mixture_id,mixture_name,t_min,t_max,actual,equipment,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *",
+                output(
+                  "dbo.measurements",
+                  "INSERT INTO dbo.measurements(date,sup,mixture_id,mixture_name,t_min,t_max,actual,equipment,created_by) /*output*/ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                ),
                 [...args, actor.id],
               )
             ).rows[0];
@@ -450,7 +464,10 @@ export async function confirmImport(id: string, kind: ImportKind, actor: User) {
         r.sup ?? null,
       );
     }
-    await c.query("UPDATE import_jobs SET consumed_at=now() WHERE id=$1", [id]);
+    await c.query(
+      "UPDATE import_jobs SET consumed_at=SYSUTCDATETIME() WHERE id=$1",
+      [id],
+    );
     await audit(c, actor, "import.confirm", kind, id, null, null, {
       added: checked.added,
       updated: checked.updated,

@@ -1,4 +1,5 @@
-import { pool } from "./db.js";
+import sql from "mssql";
+import { countsSql, lock, output, pool, type DbClient } from "./db.js";
 import { audit, transaction, assertActor } from "./audit.js";
 import { z } from "zod";
 import {
@@ -11,7 +12,7 @@ export const uuid = (v: unknown) => z.string().uuid().parse(v);
 export function fail(status: number, message: string): never {
   throw Object.assign(new Error(message), { status });
 }
-const recordColumns = `id,to_char(date,'YYYY-MM-DD') AS date,sup,mixture_id AS "mixtureId",mixture_name AS "mixtureName",t_min AS "tMin",t_max AS "tMax",actual,equipment,delta,legacy_pending AS "legacyPending",actual_min AS "actualMin",actual_max AS "actualMax",status,version,created_by AS "createdBy",(SELECT name FROM users WHERE users.id=measurements.created_by) AS "authorName"`;
+const recordColumns = `id,date,sup,mixture_id AS "mixtureId",mixture_name AS "mixtureName",t_min AS "tMin",t_max AS "tMax",actual,equipment,delta,legacy_pending AS "legacyPending",actual_min AS "actualMin",actual_max AS "actualMax",status,version,created_by AS "createdBy",(SELECT name FROM users WHERE users.id=measurements.created_by) AS "authorName"`;
 function filters(query: Record<string, unknown>) {
   const q = z
     .object({
@@ -30,12 +31,12 @@ function filters(query: Record<string, unknown>) {
     values.push(v);
     clauses.push(sql.replace("?", `$${values.length}`));
   };
-  if (q.search) add("position(? in sup)>0", q.search.trim().toUpperCase());
+  if (q.search) add("CHARINDEX(?,sup)>0", q.search.trim().toUpperCase());
   if (q.mixtureId) add("mixture_id=?", q.mixtureId);
   if (q.status === "pending") clauses.push("status IS NULL");
   else if (q.status) add("status=?", q.status);
-  if (q.from) add("date>=?::date", q.from);
-  if (q.to) add("date<=?::date", q.to);
+  if (q.from) add("date>=CONVERT(date,?,23)", q.from);
+  if (q.to) add("date<=CONVERT(date,?,23)", q.to);
   return {
     selection: q,
     where: clauses.length ? " WHERE " + clauses.join(" AND ") : "",
@@ -54,13 +55,10 @@ function deletionFilters(query: Record<string, unknown>) {
     fail(400, "Выберите период дат или другой фильтр для удаления");
   return f;
 }
-async function deletionPreview(
-  c: Pick<import("pg").PoolClient, "query">,
-  f: ReturnType<typeof filters>,
-) {
+async function deletionPreview(c: DbClient, f: ReturnType<typeof filters>) {
   const r = (
     await c.query(
-      `SELECT count(*)::int AS count,md5(coalesce(string_agg(id::text||':'||version::text,',' ORDER BY id),'')) AS fingerprint FROM measurements${f.where}`,
+      `SELECT COUNT(*) AS count,LOWER(CONVERT(varchar(32),HASHBYTES('MD5',COALESCE(STRING_AGG(CONVERT(varchar(max),CONCAT(id,':',version)),',') WITHIN GROUP (ORDER BY id),'')),2)) AS fingerprint FROM dbo.measurements${f.where}`,
       f.values,
     )
   ).rows[0];
@@ -68,7 +66,7 @@ async function deletionPreview(
 }
 const mixtureNameKey = (name: string) => name.trim().toLocaleLowerCase("ru-RU");
 async function duplicateMixtureName(
-  c: import("pg").PoolClient,
+  c: DbClient,
   name: string,
   exclude?: string,
 ) {
@@ -81,19 +79,22 @@ export const mixtureRepository = {
   async list(includeNorms = true) {
     return (
       await pool.query<Mixture>(
-        `SELECT m.id,m.name,${includeNorms ? "m.t_min" : "NULL"} AS "tMin",${includeNorms ? "m.t_max" : "NULL"} AS "tMax",m.archived,${includeNorms ? "(SELECT count(*)::int FROM measurements r WHERE r.mixture_id=m.id)" : "0"} AS "recordCount" FROM mixtures m ORDER BY m.archived,m.name`,
+        `SELECT m.id,m.name,${includeNorms ? "m.t_min" : "NULL"} AS "tMin",${includeNorms ? "m.t_max" : "NULL"} AS "tMax",m.archived,${includeNorms ? "(SELECT COUNT(*) FROM measurements r WHERE r.mixture_id=m.id)" : "0"} AS "recordCount" FROM mixtures m ORDER BY m.archived,m.name`,
       )
     ).rows;
   },
   async create(d: { name: string; tMin: number; tMax: number }, actor: User) {
     return transaction(async (c) => {
       await assertActor(c, actor, true);
-      await c.query("SELECT pg_advisory_xact_lock(847204)");
+      await lock(c, "workflow");
       if (await duplicateMixtureName(c, d.name))
         fail(409, "Смесь с таким названием уже существует");
       const row = (
         await c.query(
-          "INSERT INTO mixtures(name,t_min,t_max) VALUES($1,$2,$3) RETURNING *",
+          output(
+            "dbo.mixtures",
+            "INSERT INTO dbo.mixtures(name,t_min,t_max) /*output*/ VALUES($1,$2,$3)",
+          ),
           [d.name, d.tMin, d.tMax],
         )
       ).rows[0];
@@ -108,16 +109,22 @@ export const mixtureRepository = {
   ) {
     return transaction(async (c) => {
       await assertActor(c, actor, true);
-      await c.query("SELECT pg_advisory_xact_lock(847204)");
+      await lock(c, "workflow");
       const old = (
-        await c.query("SELECT * FROM mixtures WHERE id=$1 FOR UPDATE", [id])
+        await c.query(
+          "SELECT * FROM dbo.mixtures WITH (UPDLOCK,HOLDLOCK) WHERE id=$1",
+          [id],
+        )
       ).rows[0];
       if (!old) fail(404, "Смесь не найдена");
       if (await duplicateMixtureName(c, d.name, id))
         fail(409, "Смесь с таким названием уже существует");
       const row = (
         await c.query(
-          "UPDATE mixtures SET name=$1,t_min=$2,t_max=$3,archived=$4 WHERE id=$5 RETURNING *",
+          output(
+            "dbo.mixtures",
+            "UPDATE dbo.mixtures SET name=$1,t_min=$2,t_max=$3,archived=$4 /*output*/ WHERE id=$5",
+          ),
           [d.name, d.tMin, d.tMax, d.archived ?? false, id],
         )
       ).rows[0];
@@ -128,11 +135,15 @@ export const mixtureRepository = {
   async delete(id: string, actor: User) {
     return transaction(async (c) => {
       await assertActor(c, actor, true);
-      await c.query("SELECT pg_advisory_xact_lock(847204)");
+      await lock(c, "workflow");
       const row = (
-        await c.query("DELETE FROM mixtures WHERE id=$1 RETURNING *", [id])
+        await c.query(
+          "SELECT * FROM dbo.mixtures WITH (UPDLOCK,HOLDLOCK) WHERE id=$1",
+          [id],
+        )
       ).rows[0];
       if (!row) fail(404, "Смесь не найдена");
+      await c.query("DELETE FROM dbo.mixtures WHERE id=$1", [id]);
       await audit(c, actor, "mixture.delete", "mixtures", id, row, null);
     });
   },
@@ -141,7 +152,7 @@ export const recordRepository = {
   async supAvailable(sup: string, exclude: string | null) {
     return !(
       await pool.query(
-        "SELECT 1 FROM measurements WHERE sup=$1 AND ($2::uuid IS NULL OR id<>$2)",
+        "SELECT 1 FROM measurements WHERE sup=$1 AND (CONVERT(uniqueidentifier,$2) IS NULL OR id<>$2)",
         [sup.trim().toUpperCase(), exclude],
       )
     ).rowCount;
@@ -170,30 +181,22 @@ export const recordRepository = {
         ? sortMap[String(query.sort)]
         : "date",
       dir = query.direction === "asc" ? "ASC" : "DESC";
-    const c = await pool.connect();
-    try {
-      await c.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    return transaction(async (c) => {
       const stats = await c.query(
-        `SELECT count(*)::int AS total,count(*) FILTER(WHERE status='OK')::int AS ok,count(*) FILTER(WHERE status='NOK')::int AS nok,count(*) FILTER(WHERE status IS NULL)::int AS pending FROM measurements${where}`,
+        `SELECT ${countsSql} FROM dbo.measurements${where}`,
         values,
       );
       const rows = await c.query<Measurement>(
-        `SELECT ${recordColumns} FROM measurements${where} ORDER BY ${sort} ${dir} NULLS LAST,created_at DESC,id LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
-        [...values, size, (page - 1) * size],
+        `SELECT ${recordColumns} FROM dbo.measurements${where} ORDER BY CASE WHEN ${sort} IS NULL THEN 1 ELSE 0 END,${sort} ${dir},created_at DESC,id OFFSET $${values.length + 1} ROWS FETCH NEXT $${values.length + 2} ROWS ONLY`,
+        [...values, (page - 1) * size, size],
       );
-      await c.query("COMMIT");
       return { records: rows.rows, ...stats.rows[0], page, size };
-    } catch (e) {
-      await c.query("ROLLBACK");
-      throw e;
-    } finally {
-      c.release();
-    }
+    }, sql.ISOLATION_LEVEL.SERIALIZABLE);
   },
   async export(query: Record<string, unknown>) {
     const { where, values } = filters(query);
     const r = await pool.query<Measurement>(
-      `SELECT ${recordColumns} FROM measurements${where} ORDER BY date DESC,created_at DESC LIMIT 100001`,
+      `SELECT TOP (100001) ${recordColumns} FROM dbo.measurements${where} ORDER BY date DESC,created_at DESC,id`,
       values,
     );
     if (r.rows.length > 100000)
@@ -216,8 +219,10 @@ export const recordRepository = {
   ) {
     return transaction(async (c) => {
       await assertActor(c, actor, true);
-      await c.query("SELECT pg_advisory_xact_lock(847204)");
-      await c.query("LOCK TABLE measurements IN SHARE ROW EXCLUSIVE MODE");
+      await lock(c, "workflow");
+      await c.query(
+        "SELECT COUNT(*) FROM dbo.measurements WITH (TABLOCKX,HOLDLOCK)",
+      );
       const f = deletionFilters(query);
       const current = await deletionPreview(c, f);
       if (current.fingerprint !== fingerprint)
@@ -227,11 +232,11 @@ export const recordRepository = {
         );
       if (!current.count)
         fail(400, "Нет записей для удаления по выбранным фильтрам");
-      // A single statement, with one audit entry per source; database triggers remove linked tasks.
+      // Audit the same locked set that is deleted; FK cascades handle linked tasks.
       await c.query(
-        `WITH removed AS (DELETE FROM measurements${f.where} RETURNING *)
-        INSERT INTO audit_log(actor_id,actor_login,action,entity,entity_id,sup,before_data,details)
-        SELECT $${f.values.length + 1}::uuid,$${f.values.length + 2},'record.delete','measurements',id::text,sup,to_jsonb(removed),$${f.values.length + 3}::jsonb FROM removed`,
+        `INSERT INTO dbo.audit_log(actor_id,actor_login,action,entity,entity_id,sup,before_data,details)
+        SELECT $${f.values.length + 1},$${f.values.length + 2},'record.delete','measurements',LOWER(CONVERT(varchar(36),m.id)),m.sup,(SELECT m.* FOR JSON PATH,WITHOUT_ARRAY_WRAPPER,INCLUDE_NULL_VALUES),$${f.values.length + 3} FROM dbo.measurements m${f.where};
+        DELETE FROM dbo.measurements${f.where};`,
         [
           ...f.values,
           actor.id,
@@ -260,17 +265,16 @@ export const recordRepository = {
     if (recordId && actor.role === "EMPLOYEE")
       fail(403, "EMPLOYEE не может редактировать сохранённые записи");
     if (recordId && !d.version) fail(400, "Не указана версия записи");
-    const c = await pool.connect();
-    try {
-      await c.query("BEGIN");
+    return transaction(async (c) => {
       await assertActor(c, actor, !!recordId);
-      await c.query("SELECT pg_advisory_xact_lock_shared(847204)");
+      await lock(c, "workflow");
       let previous;
       if (recordId) {
         previous = (
-          await c.query("SELECT * FROM measurements WHERE id=$1 FOR UPDATE", [
-            recordId,
-          ])
+          await c.query(
+            "SELECT * FROM dbo.measurements WITH (UPDLOCK,HOLDLOCK) WHERE id=$1",
+            [recordId],
+          )
         ).rows[0];
         if (!previous) fail(404, "Запись не найдена");
         if (actor.role === "EMPLOYEE")
@@ -288,7 +292,7 @@ export const recordRepository = {
       else {
         snapshot = (
           await c.query(
-            "SELECT * FROM mixtures WHERE id=$1 AND NOT archived FOR SHARE",
+            "SELECT * FROM dbo.mixtures WITH (HOLDLOCK) WHERE id=$1 AND archived=0",
             [d.mixtureId],
           )
         ).rows[0];
@@ -304,8 +308,16 @@ export const recordRepository = {
         d.equipment,
       ];
       const sql = recordId
-        ? `UPDATE measurements SET sup=$1,mixture_id=$2,mixture_name=$3,t_min=$4,t_max=$5,actual=$6,equipment=$7,legacy_pending=CASE WHEN $6::double precision IS NOT NULL THEN false ELSE legacy_pending END,version=version+1,updated_at=now() WHERE id=$8 RETURNING ${recordColumns}`
-        : `INSERT INTO measurements(sup,mixture_id,mixture_name,t_min,t_max,actual,equipment,created_by,date) VALUES($1,$2,$3,$4,$5,$6,$7,$8,(now() AT TIME ZONE 'Europe/Moscow')::date) RETURNING ${recordColumns}`;
+        ? output(
+            "dbo.measurements",
+            "UPDATE dbo.measurements SET sup=$1,mixture_id=$2,mixture_name=$3,t_min=$4,t_max=$5,actual=$6,equipment=$7,legacy_pending=CASE WHEN $6 IS NOT NULL THEN 0 ELSE legacy_pending END,version=version+1,updated_at=SYSUTCDATETIME() /*output*/ WHERE id=$8",
+            recordColumns,
+          )
+        : output(
+            "dbo.measurements",
+            "INSERT INTO dbo.measurements(sup,mixture_id,mixture_name,t_min,t_max,actual,equipment,created_by) /*output*/ VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+            recordColumns,
+          );
       const r = await c.query<Measurement>(sql, [
         ...args,
         recordId ?? actor.id,
@@ -321,28 +333,23 @@ export const recordRepository = {
         {},
         d.sup,
       );
-      await c.query("COMMIT");
       return r.rows[0];
-    } catch (e) {
-      await c.query("ROLLBACK");
-      throw e;
-    } finally {
-      c.release();
-    }
+    });
   },
   async delete(id: string, version: number, actor: User) {
     if (actor.role === "EMPLOYEE")
       fail(403, "Недостаточно прав для удаления записи");
     return transaction(async (c) => {
       await assertActor(c, actor, true);
-      await c.query("SELECT pg_advisory_xact_lock_shared(847204)");
+      await lock(c, "workflow");
       const old = (
         await c.query(
-          "DELETE FROM measurements WHERE id=$1 AND version=$2 RETURNING *",
+          "SELECT * FROM dbo.measurements WITH (UPDLOCK,HOLDLOCK) WHERE id=$1 AND version=$2",
           [id, version],
         )
       ).rows[0];
       if (!old) fail(409, "Запись удалена или изменена. Обновите страницу.");
+      await c.query("DELETE FROM dbo.measurements WHERE id=$1", [id]);
       await audit(
         c,
         actor,
