@@ -58,8 +58,8 @@ BEGIN
    (SELECT c.* FOR JSON PATH,WITHOUT_ARRAY_WRAPPER,INCLUDE_NULL_VALUES),
    (SELECT i.date,i.sup,i.mixture_name AS mixtureName,i.actual,i.equipment,i.delta FOR JSON PATH,WITHOUT_ARRAY_WRAPPER,INCLUDE_NULL_VALUES)
  FROM inserted i JOIN dbo.corrective_actions c WITH (UPDLOCK) ON c.measurement_key=i.id
- WHERE EXISTS(SELECT i.date,i.sup,i.mixture_name,i.actual,i.equipment,CONVERT(float,i.delta)
-              EXCEPT SELECT c.date,c.sup,c.mixture_name,c.actual,c.equipment,c.delta);
+ WHERE EXISTS(SELECT i.date,i.sup COLLATE Latin1_General_100_BIN2,i.mixture_name COLLATE Latin1_General_100_BIN2,i.actual,i.equipment,CONVERT(float,i.delta)
+              EXCEPT SELECT c.date,c.sup COLLATE Latin1_General_100_BIN2,c.mixture_name COLLATE Latin1_General_100_BIN2,c.actual,c.equipment,c.delta);
 
  INSERT dbo.audit_log(actor_id,actor_login,action,entity,entity_id,sup,before_data,after_data,details)
  SELECT @actor,@login,'correction.auto_deleted','corrective_actions',LOWER(CONVERT(varchar(36),c.id)),i.sup,k.before_data,k.after_data,
