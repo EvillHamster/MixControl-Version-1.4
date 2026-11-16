@@ -11,6 +11,7 @@
   background: #f6f7f8;
   font-synthesis: none;
   font-size: 14px;
+  scrollbar-gutter: stable;
 }
 * {
   box-sizing: border-box;

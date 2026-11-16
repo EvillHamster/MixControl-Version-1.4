@@ -216,6 +216,12 @@ function App() {
     if (!modalOpen) return;
     const old = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = old;
+    };
+  }, [modalOpen]);
+  useEffect(() => {
+    if (!modalOpen) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !busy) closeModal();
       if (e.key === "Tab") {
@@ -236,10 +242,7 @@ function App() {
       }
     };
     document.addEventListener("keydown", handler);
-    return () => {
-      document.body.style.overflow = old;
-      document.removeEventListener("keydown", handler);
-    };
+    return () => document.removeEventListener("keydown", handler);
   }, [modalOpen, busy]);
   function closeModal() {
     setRecordModal(undefined);
@@ -792,7 +795,7 @@ function App() {
                   </div>
                 </div>
                 <div className="table-scroll">
-                  <table className="measurement-table">
+                  <table className="measurement-table" aria-busy={loading}>
                     <thead>
                       <tr>
                         {[
@@ -825,92 +828,91 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {!loading &&
-                        data.records.map((r) => (
-                          <tr
-                            key={r.id}
-                            className={r.status === "NOK" ? "row-nok" : ""}
-                          >
-                            <td className="date-cell">
-                              {r.date.split("-").reverse().join(".")}
-                            </td>
-                            <td className="sup-cell">
-                              <button
-                                disabled={!canManage}
-                                title={
-                                  r.authorName
-                                    ? `Автор: ${r.authorName}`
-                                    : "Историческая запись"
-                                }
-                                onClick={() => canManage && setRecordModal(r)}
-                              >
-                                {r.sup}
-                              </button>
-                            </td>
-                            <td>
-                              <span className="mixture-cell">
-                                {r.mixtureName}
-                              </span>
-                            </td>
-                            <td className="norm">{number(r.tMin)}</td>
-                            <td className="norm">{number(r.tMax)}</td>
-                            <td
-                              className={
-                                r.status === "NOK" ? "temp-error" : "fact"
-                              }
+                      {data.records.map((r) => (
+                        <tr
+                          key={r.id}
+                          className={r.status === "NOK" ? "row-nok" : ""}
+                        >
+                          <td className="date-cell">
+                            {r.date.split("-").reverse().join(".")}
+                          </td>
+                          <td className="sup-cell">
+                            <button
+                              disabled={!canManage}
                               title={
-                                r.legacyPending
-                                  ? `Старые значения: ${number(r.actualMin)} / ${number(r.actualMax)} °C. Требуется согласование переноса.`
-                                  : undefined
+                                r.authorName
+                                  ? `Автор: ${r.authorName}`
+                                  : "Историческая запись"
                               }
+                              onClick={() => canManage && setRecordModal(r)}
                             >
-                              {r.legacyPending
-                                ? "На переносе"
-                                : number(r.actual)}
-                            </td>
-                            <td
-                              className={
-                                r.equipment !== null &&
-                                (r.equipment < r.tMin || r.equipment > r.tMax)
-                                  ? "temp-error"
-                                  : "fact"
-                              }
-                            >
-                              {number(r.equipment)}
-                            </td>
-                            <td>
-                              <Badge status={r.status} />
-                            </td>
-                            <td>
-                              <div className="row-actions">
-                                {canManage && (
-                                  <button
-                                    title="Редактировать запись"
-                                    onClick={() =>
-                                      canManage && setRecordModal(r)
-                                    }
-                                  >
-                                    <Pencil size={14} />
-                                  </button>
-                                )}
-                                {canManage && (
-                                  <button
-                                    title="Удалить запись"
-                                    onClick={() =>
-                                      setDeletion({ type: "record", item: r })
-                                    }
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
+                              {r.sup}
+                            </button>
+                          </td>
+                          <td>
+                            <span className="mixture-cell">
+                              {r.mixtureName}
+                            </span>
+                          </td>
+                          <td className="norm">{number(r.tMin)}</td>
+                          <td className="norm">{number(r.tMax)}</td>
+                          <td
+                            className={
+                              r.status === "NOK" ? "temp-error" : "fact"
+                            }
+                            title={
+                              r.legacyPending
+                                ? `Старые значения: ${number(r.actualMin)} / ${number(r.actualMax)} °C. Требуется согласование переноса.`
+                                : undefined
+                            }
+                          >
+                            {r.legacyPending
+                              ? "На переносе"
+                              : number(r.actual)}
+                          </td>
+                          <td
+                            className={
+                              r.equipment !== null &&
+                              (r.equipment < r.tMin || r.equipment > r.tMax)
+                                ? "temp-error"
+                                : "fact"
+                            }
+                          >
+                            {number(r.equipment)}
+                          </td>
+                          <td>
+                            <Badge status={r.status} />
+                          </td>
+                          <td>
+                            <div className="row-actions">
+                              {canManage && (
+                                <button
+                                  title="Редактировать запись"
+                                  onClick={() =>
+                                    canManage && setRecordModal(r)
+                                  }
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                              )}
+                              {canManage && (
+                                <button
+                                  title="Удалить запись"
+                                  onClick={() =>
+                                    setDeletion({ type: "record", item: r })
+                                  }
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
-                {loading ? (
+                {loading && !data.records.length ? (
                   <div className="empty-state">
                     <Loader2 className="spin" size={27} />
                     <h3>Загружаем измерения</h3>
@@ -1085,20 +1087,7 @@ function App() {
               <RecordForm
                 record={recordModal}
                 mixtures={mixtures}
-                onSave={(message) => {
-                  if (recordModal === null) {
-                    setSearch("");
-                    setDebounced("");
-                    setMixFilter("");
-                    setStatus("");
-                    setFrom("");
-                    setTo("");
-                    setPage(1);
-                    setSort("date");
-                    setDirection("desc");
-                  }
-                  saved(message);
-                }}
+                onSave={saved}
                 onClose={closeModal}
                 setBusy={setBusy}
               />
