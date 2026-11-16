@@ -26,9 +26,10 @@ CREATE TABLE dbo.mixtures (
  id uniqueidentifier NOT NULL DEFAULT NEWSEQUENTIALID() PRIMARY KEY,
  name nvarchar(120) NOT NULL CHECK(LEN(LTRIM(RTRIM(name)))>0),
  t_min float NOT NULL CHECK(t_min BETWEEN -273.15 AND 10000),
- t_max float NOT NULL CHECK(t_max BETWEEN t_min AND 10000),
+ t_max float NOT NULL,
  archived bit NOT NULL DEFAULT 0,
- created_at datetime2(3) NOT NULL DEFAULT SYSUTCDATETIME()
+ created_at datetime2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+ CONSTRAINT mixtures_temperature_range CHECK(t_max BETWEEN t_min AND 10000)
 );
 CREATE TABLE dbo.measurements (
  id uniqueidentifier NOT NULL DEFAULT NEWSEQUENTIALID() PRIMARY KEY,
@@ -37,7 +38,7 @@ CREATE TABLE dbo.measurements (
  mixture_id uniqueidentifier NOT NULL REFERENCES dbo.mixtures(id),
  mixture_name nvarchar(120) NOT NULL,
  t_min float NOT NULL CHECK(t_min BETWEEN -273.15 AND 10000),
- t_max float NOT NULL CHECK(t_max BETWEEN t_min AND 10000),
+ t_max float NOT NULL,
  actual_min float NULL CHECK(actual_min BETWEEN -273.15 AND 10000),
  actual_max float NULL CHECK(actual_max BETWEEN -273.15 AND 10000),
  actual float NULL CHECK(actual BETWEEN -273.15 AND 10000),
@@ -52,6 +53,7 @@ CREATE TABLE dbo.measurements (
  version int NOT NULL DEFAULT 1,
  created_at datetime2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
  updated_at datetime2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+ CONSTRAINT measurements_temperature_range CHECK(t_max BETWEEN t_min AND 10000),
  CONSTRAINT measurements_sup_seven_digits CHECK(DATALENGTH(sup)=14 AND sup NOT LIKE N'%[^0-9]%')
 );
 CREATE INDEX measurements_date_idx ON dbo.measurements(date DESC,created_at DESC);
