@@ -9,7 +9,7 @@ import {
   correctionStatuses,
   type Correction,
 } from "../shared/workflow.js";
-import type { User } from "../shared/domain.js";
+import { databaseIdSchema, type User } from "../shared/domain.js";
 const columns =
   'c.id,c.measurement_key AS "measurementKey",c.measurement_id AS "measurementId",c.date,c.sup,c.mixture_name AS "mixtureName",c.actual,c.equipment,c.delta,c.initial_data AS "initialData",c.source_deleted AS "sourceDeleted",c.status,c.responsible_id AS "responsibleId",(SELECT name+CASE WHEN deleted_at IS NOT NULL THEN N\' (удалён)\' WHEN active=0 THEN N\' (отключён)\' ELSE \'\' END FROM users WHERE id=c.responsible_id) AS "responsibleName",c.work_done AS "workDone",c.detected_at AS "detectedAt",c.completed_at AS "completedAt",c.updated_at AS "updatedAt",c.version';
 function filters(input: Record<string, unknown>) {
@@ -20,7 +20,7 @@ function filters(input: Record<string, unknown>) {
       from: z.iso.date().optional(),
       to: z.iso.date().optional(),
       status: z.enum(["NOT_STARTED", "IN_PROGRESS", "DONE"]).optional(),
-      responsibleId: z.union([z.string().uuid(), z.literal("none")]).optional(),
+      responsibleId: z.union([databaseIdSchema, z.literal("none")]).optional(),
     })
     .parse(input);
   if (q.from && q.to && q.from > q.to)

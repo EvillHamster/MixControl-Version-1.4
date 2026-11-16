@@ -3,12 +3,12 @@ import { countsSql, lock, output, pool, type DbClient } from "./db.js";
 import { audit, transaction, assertActor } from "./audit.js";
 import { z } from "zod";
 import {
+  databaseIdSchema,
   recordSchema,
   type Measurement,
   type Mixture,
   type User,
 } from "../shared/domain.js";
-export const uuid = (v: unknown) => z.string().uuid().parse(v);
 export function fail(status: number, message: string): never {
   throw Object.assign(new Error(message), { status });
 }
@@ -17,7 +17,7 @@ function filters(query: Record<string, unknown>) {
   const q = z
     .object({
       search: z.string().max(80).optional(),
-      mixtureId: z.string().uuid().optional(),
+      mixtureId: databaseIdSchema.optional(),
       status: z.enum(["OK", "NOK", "pending"]).optional(),
       from: z.iso.date().optional(),
       to: z.iso.date().optional(),

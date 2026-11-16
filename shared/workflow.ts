@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { databaseIdSchema } from "./domain.js";
 export const correctionStatuses = {
   NOT_STARTED: "Не в работе",
   IN_PROGRESS: "В работе",
@@ -8,7 +9,7 @@ export type CorrectionStatus = keyof typeof correctionStatuses;
 export const correctionUpdateSchema = z
   .object({
     status: z.enum(["NOT_STARTED", "IN_PROGRESS", "DONE"]),
-    responsibleId: z.string().uuid().nullable(),
+    responsibleId: databaseIdSchema.nullable(),
     workDone: z.string().max(10000, "Описание: не более 10 000 символов"),
     version: z.number().int().positive(),
   })

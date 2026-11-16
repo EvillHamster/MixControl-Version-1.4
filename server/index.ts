@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { pool } from "./db.js";
 import { migrate } from "./migrate.js";
-import { mixtureSchema, recordSchema, supSchema } from "../shared/domain.js";
-import { mixtureRepository, recordRepository, uuid } from "./repository.js";
+import { databaseIdSchema, mixtureSchema, recordSchema, supSchema } from "../shared/domain.js";
+import { mixtureRepository, recordRepository } from "./repository.js";
 import { previewImport, confirmImport, mixtureWorkbook } from "./imports.js";
 import { measurementWorkbook } from "./excel.js";
 import {
@@ -118,7 +118,7 @@ app.get("/api/users", requireUserManager, async (_req, res) =>
 app.put("/api/users/:id/role", requireUserManager, async (req, res) =>
   res.json(
     await authService.assignRole(
-      uuid(req.params.id),
+      databaseIdSchema.parse(req.params.id),
       req.body,
       currentUser(res),
     ),
@@ -132,7 +132,7 @@ app.post("/api/users", requireAdmin, async (req, res) =>
 app.put("/api/users/:id", requireAdmin, async (req, res) =>
   res.json(
     await authService.updateUser(
-      uuid(req.params.id),
+      databaseIdSchema.parse(req.params.id),
       req.body,
       currentUser(res),
     ),
@@ -140,7 +140,7 @@ app.put("/api/users/:id", requireAdmin, async (req, res) =>
 );
 app.delete("/api/users/:id", requireUserManager, async (req, res) => {
   await authService.deleteUser(
-    uuid(req.params.id),
+    databaseIdSchema.parse(req.params.id),
     z.coerce.number().int().positive().parse(req.query.version),
     currentUser(res),
   );
@@ -178,7 +178,7 @@ for (const kind of ["records", "mixtures"] as const) {
     async (req, res) => {
       res.json(
         await confirmImport(
-          z.string().uuid().parse(req.body?.id),
+          databaseIdSchema.parse(req.body?.id),
           kind,
           currentUser(res),
         ),
@@ -206,14 +206,14 @@ app.post("/api/mixtures", requireAdmin, async (req, res) =>
 app.put("/api/mixtures/:id", requireAdmin, async (req, res) =>
   res.json(
     await mixtureRepository.update(
-      uuid(req.params.id),
+      databaseIdSchema.parse(req.params.id),
       mixtureSchema.parse(req.body),
       currentUser(res),
     ),
   ),
 );
 app.delete("/api/mixtures/:id", requireAdmin, async (req, res) => {
-  await mixtureRepository.delete(uuid(req.params.id), currentUser(res));
+  await mixtureRepository.delete(databaseIdSchema.parse(req.params.id), currentUser(res));
   res.status(204).end();
 });
 app.get("/api/records/delete-preview", requireAdmin, async (req, res) => {
@@ -240,7 +240,7 @@ app.get("/api/records/check-sup", async (req, res) => {
   res.json({
     available: await recordRepository.supAvailable(
       sup,
-      req.query.exclude ? uuid(req.query.exclude) : null,
+      req.query.exclude ? databaseIdSchema.parse(req.query.exclude) : null,
     ),
   });
 });
@@ -276,7 +276,7 @@ app.post("/api/records", async (req, res) =>
 app.put("/api/records/:id", requireAdmin, async (req, res) =>
   res.json(
     await recordRepository.save(
-      uuid(req.params.id),
+      databaseIdSchema.parse(req.params.id),
       recordSchema.parse(req.body),
       currentUser(res),
     ),
@@ -284,7 +284,7 @@ app.put("/api/records/:id", requireAdmin, async (req, res) =>
 );
 app.delete("/api/records/:id", requireAdmin, async (req, res) => {
   await recordRepository.delete(
-    uuid(req.params.id),
+    databaseIdSchema.parse(req.params.id),
     z.coerce.number().int().positive().parse(req.query.version),
     currentUser(res),
   );
@@ -297,7 +297,7 @@ app.get("/api/corrections/summary", requireAdmin, async (_req, res) =>
   res.json(await correctionRepository.summary()),
 );
 app.get("/api/corrections/:id/history", requireAdmin, async (req, res) =>
-  res.json(await correctionRepository.detail(uuid(req.params.id), req.query)),
+  res.json(await correctionRepository.detail(databaseIdSchema.parse(req.params.id), req.query)),
 );
 app.get("/api/corrections/assignees", requireAdmin, async (_req, res) =>
   res.json(await correctionRepository.assignees()),
@@ -313,12 +313,12 @@ app.get("/api/corrections", requireAdmin, async (req, res) =>
   res.json(await correctionRepository.list(req.query)),
 );
 app.get("/api/corrections/:id", requireAdmin, async (req, res) =>
-  res.json(await correctionRepository.detail(uuid(req.params.id), req.query)),
+  res.json(await correctionRepository.detail(databaseIdSchema.parse(req.params.id), req.query)),
 );
 app.put("/api/corrections/:id", requireAdmin, async (req, res) =>
   res.json(
     await correctionRepository.update(
-      uuid(req.params.id),
+      databaseIdSchema.parse(req.params.id),
       req.body,
       currentUser(res),
     ),

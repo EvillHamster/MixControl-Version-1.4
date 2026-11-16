@@ -9,6 +9,8 @@ export interface User {
   active: boolean;
   version: number;
 }
+// SQL Server's uniqueidentifier can contain GUIDs outside RFC UUID version bits.
+export const databaseIdSchema = z.guid("Некорректный идентификатор").toLowerCase();
 export const supSchema = z
   .string()
   .regex(/^[0-9]{7}$/, "SUP должен содержать ровно 7 цифр");
@@ -44,7 +46,7 @@ export const mixtureSchema = z
   });
 export const recordSchema = z.object({
   sup: supSchema,
-  mixtureId: z.string().uuid(),
+  mixtureId: databaseIdSchema,
   actual: temperature.nullable(),
   equipment: temperature.nullable(),
   version: z.number().int().positive().optional(),

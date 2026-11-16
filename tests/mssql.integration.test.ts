@@ -239,6 +239,16 @@ test("MixControl 1.4 end-to-end — SQL Server 2019", async (t) => {
             )
           ).json()
         ).id;
+        // NEWSEQUENTIALID on Windows can set bits that strict RFC validation rejects.
+        const sequentialId = "24563190-5cb2-f101-bef7-00155d100e00";
+        await pool.query("UPDATE dbo.mixtures SET id=$1 WHERE id=$2", [sequentialId, mix]);
+        mix = sequentialId;
+        await expect(
+          send("/mixtures/" + mix, "PUT", { name: "Смесь для проверки", tMin: 100, tMax: 150 }, admin),
+          200,
+        );
+        await expect(send("/records?mixtureId=" + mix, "GET", undefined, employee), 200);
+        await expect(send("/records?mixtureId=not-a-guid", "GET", undefined, employee), 400);
         const opts = await (
           await expect(
             send("/mixtures/options", "GET", undefined, employee),
