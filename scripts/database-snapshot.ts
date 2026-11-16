@@ -49,41 +49,46 @@ async function insert(
         "[" + key + "] " + types[type] + (type === "json" ? " AS JSON" : ""),
     )
     .join(",");
-  try {
-    if (identity.has(table))
-      await c.query("SET IDENTITY_INSERT dbo." + table + " ON");
-    for (let offset = 0; offset < rows.length; offset += 500) {
-      const part = rows.slice(offset, offset + 500).map((row) =>
-        Object.fromEntries(
-          fields.map(([key, type]) => {
-            if (!Object.hasOwn(row, key))
-              throw new Error("В снимке отсутствует поле " + table + "." + key);
-            const value = row[key];
-            return [
-              key,
-              type === "time" && typeof value === "string"
-                ? value.replace(/Z$/, "")
-                : value,
-            ];
-          }),
-        ),
-      );
-      await c.query(
-        "INSERT dbo." +
-          table +
-          "(" +
-          columns +
-          ") SELECT " +
-          columns +
-          " FROM OPENJSON($1) WITH (" +
-          projected +
-          ")",
-        [JSON.stringify(part)],
-      );
-    }
-  } finally {
-    if (identity.has(table))
-      await c.query("SET IDENTITY_INSERT dbo." + table + " OFF");
+  const relation = "dbo." + table;
+  const insertSql =
+    "INSERT " +
+    relation +
+    "(" +
+    columns +
+    ") SELECT " +
+    columns +
+    " FROM OPENJSON($1) WITH (" +
+    projected +
+    ");";
+  // Parameterized driver requests run in their own sp_executesql batch.
+  const statement = identity.has(table)
+    ? "SET IDENTITY_INSERT " +
+      relation +
+      " ON; BEGIN TRY " +
+      insertSql +
+      " SET IDENTITY_INSERT " +
+      relation +
+      " OFF; END TRY BEGIN CATCH SET IDENTITY_INSERT " +
+      relation +
+      " OFF; THROW; END CATCH;"
+    : insertSql;
+  for (let offset = 0; offset < rows.length; offset += 500) {
+    const part = rows.slice(offset, offset + 500).map((row) =>
+      Object.fromEntries(
+        fields.map(([key, type]) => {
+          if (!Object.hasOwn(row, key))
+            throw new Error("В снимке отсутствует поле " + table + "." + key);
+          const value = row[key];
+          return [
+            key,
+            type === "time" && typeof value === "string"
+              ? value.replace(/Z$/, "")
+              : value,
+          ];
+        }),
+      ),
+    );
+    await c.query(statement, [JSON.stringify(part)]);
   }
 }
 

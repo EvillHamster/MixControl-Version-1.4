@@ -677,10 +677,23 @@ test("MixControl 1.4 end-to-end — SQL Server 2019", async (t) => {
               "UPDATE dbo.measurements SET sup='bad' WHERE sup='LEGACY-X'",
             ),
         );
+        for (const table of ["audit_log", "correction_events"]) {
+          const statement =
+            "SELECT CONVERT(varchar(20),id) AS id FROM dbo." +
+            table +
+            " ORDER BY id";
+          assert.deepEqual(
+            (await restoreCheck.request().query(statement)).recordset.map(
+              (row) => row.id,
+            ),
+            (await pool.query(statement)).rows.map((row) => row.id),
+          );
+        }
         for (const table of [
           "measurements",
           "users",
           "corrective_actions",
+          "correction_events",
           "daily_reports",
           "audit_log",
         ]) {
