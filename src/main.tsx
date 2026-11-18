@@ -87,6 +87,7 @@ function App() {
   const [search, setSearch] = useState(""),
     [debounced, setDebounced] = useState(""),
     [mixFilter, setMixFilter] = useState(""),
+    [lineFilter, setLineFilter] = useState(""),
     [status, setStatus] = useState(""),
     [from, setFrom] = useState(""),
     [to, setTo] = useState(""),
@@ -144,6 +145,7 @@ function App() {
     direction,
     ...(debounced ? { search: debounced } : {}),
     ...(mixFilter ? { mixtureId: mixFilter } : {}),
+    ...(lineFilter ? { line: lineFilter } : {}),
     ...(status ? { status } : {}),
     ...(from ? { from } : {}),
     ...(to ? { to } : {}),
@@ -292,6 +294,7 @@ function App() {
       Object.entries({
         search: debounced,
         mixtureId: mixFilter,
+        line: lineFilter,
         status,
         from,
         to,
@@ -301,6 +304,7 @@ function App() {
       from ? "Дата с: " + from : "",
       to ? "Дата по: " + to : "",
       debounced ? "SUP содержит: " + debounced : "",
+      lineFilter ? "Линии: " + lineFilter : "",
       mixFilter
         ? "Смесь: " +
           (mixtures.find((m) => m.id === mixFilter)?.name || mixFilter)
@@ -389,7 +393,7 @@ function App() {
             : tab === "corrections"
               ? "Корректирующие действия"
               : "База смесей";
-  const hasFilters = !!(search || mixFilter || status || from || to);
+  const hasFilters = !!(search || mixFilter || lineFilter || status || from || to);
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -766,6 +770,17 @@ function App() {
                       onChange={(id) => filterChange(() => setMixFilter(id))}
                     />
                     <select
+                      aria-label="Линии"
+                      value={lineFilter}
+                      onChange={(e) =>
+                        filterChange(() => setLineFilter(e.target.value))
+                      }
+                    >
+                      <option value="">Линии: все</option>
+                      <option value="MB">MB</option>
+                      <option value="FMF">FMF</option>
+                    </select>
+                    <select
                       aria-label="Фильтр по результату"
                       value={status}
                       onChange={(e) =>
@@ -784,6 +799,7 @@ function App() {
                         onClick={() => {
                           setSearch("");
                           setMixFilter("");
+                          setLineFilter("");
                           setStatus("");
                           setFrom("");
                           setTo("");

@@ -634,6 +634,39 @@ test("MixControl 1.4 end-to-end — SQL Server 2019", async (t) => {
       assert.equal(profile.id, keyUser.id);
     });
 
+    await t.test("Линии MB/FMF: алфавит, регистр, страницы, Excel и удаление", async () => {
+      const names = ["M1-line", "m2-line", "М1-line", "м2-line", " m1-space", "M3-line", "FMF-line", "XM1-line"];
+      const mbSups = new Set(["8800000", "8800001", "8800002", "8800003", "8800004"]);
+      for (const [i, name] of names.entries()) {
+        const mixture = await (await expect(send("/mixtures", "POST", {
+          name, tMin: 100, tMax: 150,
+        }, admin), 201)).json();
+        await expect(send("/records", "POST", {
+          sup: String(8800000 + i), mixtureId: mixture.id, actual: 125, equipment: 125,
+        }, admin), 201);
+      }
+      const page = await (await expect(send("/records?search=880000&line=MB&size=2", "GET", undefined, admin), 200)).json();
+      assert.equal(page.total, 5);
+      assert.equal(page.records.length, 2);
+      assert.ok(page.records.every((r: any) => mbSups.has(r.sup)));
+      const fmf = await (await expect(send("/records?search=880000&line=FMF", "GET", undefined, admin), 200)).json();
+      assert.equal(fmf.total, 3);
+      assert.ok(fmf.records.every((r: any) => !mbSups.has(r.sup)));
+      await expect(send("/records?line=BAD", "GET", undefined, admin), 400);
+      const response = await expect(send("/records/export?search=880000&line=MB", "GET", undefined, admin), 200);
+      const book = new ExcelJS.Workbook();
+      await book.xlsx.load(Buffer.from(await response.arrayBuffer()) as any);
+      assert.equal(book.worksheets[0].actualRowCount, 6);
+      const preview = await (await expect(send("/records/delete-preview?search=880000&line=MB", "GET", undefined, admin), 200)).json();
+      assert.equal(preview.count, 5);
+      await expect(send("/records/by-filter", "DELETE", {
+        filters: { search: "880000", line: "MB" }, fingerprint: preview.fingerprint,
+      }, admin), 200);
+      const remaining = await (await expect(send("/records?search=880000", "GET", undefined, admin), 200)).json();
+      assert.equal(remaining.total, 3);
+      assert.ok(remaining.records.every((r: any) => !mbSups.has(r.sup)));
+    });
+
     await t.test("Резервная копия и пробное восстановление", async () => {
       const restoreDb = process.env.SQLSERVER_TEST_RESTORE_DATABASE;
       assert.ok(

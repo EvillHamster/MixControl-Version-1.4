@@ -18,6 +18,7 @@ function filters(query: Record<string, unknown>) {
     .object({
       search: z.string().max(80).optional(),
       mixtureId: databaseIdSchema.optional(),
+      line: z.enum(["MB", "FMF"]).optional(),
       status: z.enum(["OK", "NOK", "pending"]).optional(),
       from: z.iso.date().optional(),
       to: z.iso.date().optional(),
@@ -33,6 +34,11 @@ function filters(query: Record<string, unknown>) {
   };
   if (q.search) add("CHARINDEX(?,sup)>0", q.search.trim().toUpperCase());
   if (q.mixtureId) add("mixture_id=?", q.mixtureId);
+  if (q.line) {
+    const prefix = "LEFT(UPPER(LTRIM(mixture_name)) COLLATE Latin1_General_100_BIN2,2)";
+    const mb = prefix + " IN (N'M1',N'M2',N'М1',N'М2')";
+    clauses.push(q.line === "MB" ? mb : "NOT (" + mb + ")");
+  }
   if (q.status === "pending") clauses.push("status IS NULL");
   else if (q.status) add("status=?", q.status);
   if (q.from) add("date>=CONVERT(date,?,23)", q.from);
@@ -49,6 +55,7 @@ function deletionFilters(query: Record<string, unknown>) {
     !f.selection.from &&
     !f.selection.to &&
     !f.selection.mixtureId &&
+    !f.selection.line &&
     !f.selection.status &&
     !f.selection.search?.trim()
   )
