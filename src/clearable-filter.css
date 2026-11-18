@@ -24,7 +24,7 @@
 }
 .clearable-filter .filter-clear:hover {
   color: #b43b3b;
-  background: #fff0f0;
+  background: transparent;
 }
 .clearable-filter.has-value > select,
 .clearable-filter.has-value > input {
