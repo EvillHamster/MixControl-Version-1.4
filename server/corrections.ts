@@ -182,6 +182,29 @@ export const correctionRepository = {
     });
     return this.detail(id);
   },
+  async delete(id: string, version: number, actor: User) {
+    if (actor.role !== "KEYUSER")
+      fail(403, "Удалять корректировки может только KEYUSER");
+    await transaction(async (c) => {
+      await assertActor(c, actor, true);
+      await lock(c, "workflow");
+      const current = (await c.query(
+        "SELECT role FROM dbo.users WITH (HOLDLOCK) WHERE id=$1 AND active=1 AND deleted_at IS NULL",
+        [actor.id],
+      )).rows[0];
+      if (current?.role !== "KEYUSER")
+        fail(403, "Удалять корректировки может только KEYUSER");
+      const old = (await c.query(
+        "SELECT id,version FROM dbo.corrective_actions WITH (UPDLOCK,HOLDLOCK) WHERE id=$1",
+        [id],
+      )).rows[0];
+      if (!old) fail(404, "Корректировка не найдена");
+      if (old.version !== version)
+        fail(409, "Корректировка изменена. Обновите список и повторите удаление.");
+      // The SQL trigger records deletion in the technical audit and notifies SSE.
+      await c.query("DELETE FROM dbo.corrective_actions WHERE id=$1", [id]);
+    });
+  },
   async workbook(query: Record<string, unknown>) {
     const { where, values } = filters(query);
     const rows = (

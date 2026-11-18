@@ -765,3 +765,10 @@
   margin: 6px;
   color: #8490a0;
 }
+
+.source-deleted-note {
+  display: block;
+  margin-top: 4px;
+  color: #8b5e24;
+  font-size: 11px;
+}

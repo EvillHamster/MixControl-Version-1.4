@@ -1652,3 +1652,12 @@ input.invalid {
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* Required fields stay marked until a valid value is entered. */
+.record-form input.invalid,
+.record-form input.invalid:focus,
+.record-form .mixture-picker-trigger[aria-invalid="true"] {
+  border-color: #dc4444;
+  background: #fff5f5;
+  outline-color: #dc4444;
+}

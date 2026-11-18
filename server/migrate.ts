@@ -6,6 +6,7 @@ const migrations = [
   "001-schema.sql",
   "002-workflow.sql",
   "003-login-format.sql",
+  "004-retain-corrections.sql",
 ];
 export async function migrate() {
   return transaction(async (db) => {

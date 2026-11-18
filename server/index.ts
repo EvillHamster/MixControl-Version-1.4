@@ -324,6 +324,14 @@ app.put("/api/corrections/:id", requireAdmin, async (req, res) =>
     ),
   ),
 );
+app.delete("/api/corrections/:id", requireAdmin, async (req, res) => {
+  await correctionRepository.delete(
+    databaseIdSchema.parse(req.params.id),
+    z.coerce.number().int().positive().parse(req.query.version),
+    currentUser(res),
+  );
+  res.status(204).end();
+});
 app.post("/api/corrections/:id/comments", requireAdmin, (_req, res) =>
   res.status(410).json({
     message:

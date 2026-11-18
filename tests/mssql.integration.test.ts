@@ -328,7 +328,7 @@ test("MixControl 1.4 end-to-end — SQL Server 2019", async (t) => {
       },
     );
     await t.test(
-      "Корректировки, история, Excel, отчёты, каскадное удаление",
+      "Корректировки, история, Excel, отчёты, сохранение и удаление KEYUSER",
       async () => {
         const tasks = await (
           await expect(send("/corrections", "GET", undefined, admin), 200)
@@ -458,14 +458,50 @@ test("MixControl 1.4 end-to-end — SQL Server 2019", async (t) => {
           200,
         );
         assert.equal(
-          (
-            await pool.query(
-              "SELECT id FROM dbo.corrective_actions WHERE id=$1",
-              [task.id],
-            )
-          ).rowCount,
-          0,
+          (await pool.query("SELECT id FROM dbo.corrective_actions WHERE id=$1", [task.id])).rowCount,
+          1,
         );
+        const retained = await (await expect(
+          send("/corrections/" + task.id + "/history", "GET", undefined, admin), 200,
+        )).json();
+        assert.equal(retained.correction.sourceDeleted, true);
+        assert.equal(retained.correction.measurementId, null);
+        assert.equal(retained.correction.status, "DONE");
+        assert.equal(retained.correction.workDone, "Образец проверен");
+        assert.ok(retained.events.some((e: any) => e.kind === "measurement_deleted"));
+        const deleteUrl = "/corrections/" + task.id + "?version=" + retained.correction.version;
+        await expect(send(deleteUrl, "DELETE", undefined, admin), 403);
+        await expect(send(deleteUrl, "DELETE", undefined, employee), 403);
+        await expect(send("/corrections/" + task.id + "?version=" + task.version, "DELETE", undefined, key), 409);
+        await expect(send(deleteUrl, "DELETE", undefined, key), 204);
+        await expect(send("/corrections/" + task.id, "GET", undefined, key), 404);
+        assert.equal((await pool.query(
+          "SELECT id FROM dbo.audit_log WHERE action='correction.deleted' AND entity_id=$1",
+          [task.id],
+        )).rowCount, 1);
+
+        // Active actions also survive single-record deletion; unrelated actions remain.
+        const source = await (await expect(send("/records", "POST", input("0000130", 130, 120), admin), 201)).json();
+        let active = (await (await expect(send("/corrections?search=0000130", "GET", undefined, key), 200)).json()).rows[0];
+        assert.ok(active);
+        const changed = await (await expect(send("/records/" + source.id, "PUT", {
+          ...input("0000130", 122, 121), version: source.version,
+        }, admin), 200)).json();
+        active = (await (await expect(send("/corrections/" + active.id, "GET", undefined, key), 200)).json()).correction;
+        assert.equal(active.delta, 1); // Correcting temperatures must not delete the action.
+        await expect(send("/records/" + source.id + "?version=" + changed.version, "DELETE", undefined, admin), 204);
+        active = (await (await expect(send("/corrections/" + active.id, "GET", undefined, key), 200)).json()).correction;
+        assert.equal(active.sourceDeleted, true);
+        assert.equal(active.measurementKey, source.id);
+        const beforeCount = (await (await expect(send("/corrections/summary", "GET", undefined, key), 200)).json()).active;
+        await expect(send("/corrections/" + active.id + "?version=" + active.version, "DELETE", undefined, key), 204);
+        assert.equal((await (await expect(send("/corrections/summary", "GET", undefined, key), 200)).json()).active, beforeCount - 1);
+        const untouched = (await (await expect(send("/corrections?search=0000120", "GET", undefined, key), 200)).json()).rows;
+        assert.equal(untouched.length, 1);
+        // Leave this orphan with its immutable key to verify snapshot restoration.
+        const original = (await (await expect(send("/records?search=0000120", "GET", undefined, key), 200)).json()).records[0];
+        await expect(send("/records/" + original.id + "?version=" + original.version, "DELETE", undefined, admin), 204);
+
         assert.equal(
           (
             await pool.query(

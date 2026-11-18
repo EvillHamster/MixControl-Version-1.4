@@ -73,6 +73,7 @@ export function MixturePicker({
         disabled={disabled}
         role="combobox"
         aria-required={required || undefined}
+        aria-invalid={required && !value ? true : undefined}
         aria-labelledby={id + "-label"}
         aria-expanded={open}
         aria-controls={id + "-list"}

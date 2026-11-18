@@ -239,7 +239,7 @@ export const recordRepository = {
         );
       if (!current.count)
         fail(400, "Нет записей для удаления по выбранным фильтрам");
-      // Audit the same locked set that is deleted; FK cascades handle linked tasks.
+      // Audit the locked set; the measurement trigger retains linked corrections.
       await c.query(
         `INSERT INTO dbo.audit_log(actor_id,actor_login,action,entity,entity_id,sup,before_data,details)
         SELECT $${f.values.length + 1},$${f.values.length + 2},'record.delete','measurements',LOWER(CONVERT(varchar(36),m.id)),m.sup,(SELECT m.* FOR JSON PATH,WITHOUT_ARRAY_WRAPPER,INCLUDE_NULL_VALUES),$${f.values.length + 3} FROM dbo.measurements m${f.where};

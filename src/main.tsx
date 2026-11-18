@@ -1379,7 +1379,8 @@ function RecordForm({
             value={sup}
             onChange={(e) => setSup(e.target.value)}
             placeholder="Например, 0123456"
-            className={supState === "duplicate" ? "invalid" : ""}
+            className={supState === "duplicate" || !/^[0-9]{7}$/.test(sup) ? "invalid" : ""}
+            aria-invalid={supState === "duplicate" || !/^[0-9]{7}$/.test(sup) || undefined}
           />
           <small className={"sup-feedback " + supState}>
             {supState === "checking"

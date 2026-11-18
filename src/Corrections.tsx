@@ -8,6 +8,7 @@ import {
   ChevronRight,
   RefreshCw,
   History,
+  Trash2,
   Check,
 } from "lucide-react";
 import {
@@ -18,6 +19,7 @@ import {
   type CorrectionStatus,
 } from "../shared/workflow";
 import { api } from "./api";
+import { useAuth } from "./auth";
 type Assignee = { id: string; name: string; role: string; assignable: boolean };
 const n = (v: number | null) =>
   v === null ? "—" : v.toLocaleString("ru-RU", { maximumFractionDigits: 6 });
@@ -42,6 +44,9 @@ export function Corrections({
   revision: number;
   onSaved: (message: string) => void;
 }) {
+  const { user } = useAuth();
+  const canDelete = user.role === "KEYUSER";
+  const [deleting, setDeleting] = useState<Correction | null>(null);
   const [view, setView] = useState<"active" | "archive">("active");
   const [search, setSearch] = useState(""),
     [debounced, setDebounced] = useState(""),
@@ -269,6 +274,7 @@ export function Corrections({
                 <th>Ответственный</th>
                 {view === "archive" && <th>Завершена</th>}
                 <th>История</th>
+                {canDelete && <th>Удаление</th>}
               </tr>
             </thead>
             <tbody>
@@ -300,6 +306,9 @@ export function Corrections({
                     >
                       {r.sup}
                     </button>
+                    {r.sourceDeleted && (
+                      <small className="source-deleted-note">Запись журнала удалена</small>
+                    )}
                   </td>
                   <td>{r.mixtureName}</td>
                   <td>{n(r.actual)}</td>
@@ -331,6 +340,19 @@ export function Corrections({
                       </button>
                     </div>
                   </td>
+                  {canDelete && (
+                    <td>
+                      <button
+                        title={"Удалить корректировку " + r.sup}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleting(r);
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -376,6 +398,17 @@ export function Corrections({
           </div>
         </div>
       </section>
+      {deleting && canDelete && (
+        <DeleteCorrectionDialog
+          correction={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null);
+            setRetry((r) => r + 1);
+            onSaved("Корректировка удалена");
+          }}
+        />
+      )}
       {selected && (
         <CorrectionCard
           id={selected.id}
@@ -390,6 +423,80 @@ export function Corrections({
         />
       )}
     </>
+  );
+}
+function DeleteCorrectionDialog({
+  correction, onClose, onDeleted,
+}: {
+  correction: Correction;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const root = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const old = document.body.style.overflow;
+    const previous = document.activeElement as HTMLElement | null;
+    document.body.style.overflow = "hidden";
+    root.current?.querySelector("button")?.focus({ preventScroll: true });
+    return () => {
+      document.body.style.overflow = old;
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, []);
+  async function remove() {
+    setBusy(true);
+    setError("");
+    try {
+      await api("/corrections/" + correction.id + "?version=" + correction.version, {
+        method: "DELETE",
+      });
+      onDeleted();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <section
+        ref={root}
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-correction-title"
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && !busy) onClose();
+          if (e.key === "Tab") {
+            const nodes = root.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+            if (!nodes?.length) return;
+            const first = nodes[0], last = nodes[nodes.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+              e.preventDefault(); last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+              e.preventDefault(); first.focus();
+            }
+          }
+        }}
+      >
+        <h2 id="delete-correction-title">Удалить корректировку?</h2>
+        <p className="modal-subtitle">
+          SUP {correction.sup} · {correction.mixtureName}. Корректировка и её история
+          будут удалены. Исходное измерение останется в журнале.
+          Удаление будет зафиксировано в техническом аудите.
+        </p>
+        {error && <div className="form-error" role="alert">{error}</div>}
+        <div className="modal-buttons">
+          <button className="button secondary" disabled={busy} onClick={onClose}>Отмена</button>
+          <button className="button danger" disabled={busy} onClick={() => void remove()}>
+            {busy ? <Loader2 className="spin" size={16} /> : <Trash2 size={16} />}
+            Удалить
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 function eventText(e: CorrectionEvent) {
