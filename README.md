@@ -1,8 +1,14 @@
-# MixControl Version 1.4
+# MixControl Version 1.5
 
 Версия для **Microsoft SQL Server 2019** (уровень совместимости базы **150**) и **Node.js 22.14.0**. Рабочая установка на Windows Server не требует Docker или PostgreSQL. [MixControl 1.3](https://github.com/EvillHamster/MixControl---V1.0/tree/v1.3) остаётся в прежнем репозитории и использует свою базу.
 
 Фронтенд: React 19, TypeScript, Vite и Tailwind, папка src/. Сервер: Express, TypeScript и драйвер mssql, папка server/. Express обслуживает API и собранный фронтенд с одного адреса. Схема и триггеры T-SQL находятся в [server/mssql](server/mssql). SQL Server рассчитывает OK/NOK по обеим температурам и ведёт корректировки. Сервер формирует ежедневные отчёты по московскому времени. Для SSE он отслеживает пять счётчиков изменений на экземпляр приложения; данные появляются в других вкладках после фиксации транзакции.
+
+## Изменения в версии 1.5
+
+Добавлены фильтр линий MB/FMF, индивидуальная и общая очистка фильтров, единые кнопки очистки и подсветка обязательных полей. Исправлены проверка идентификаторов SQL Server, допустимые символы логинов и скачок журнала после сохранения. Корректировки сохраняются после удаления исходного измерения; удалять их может только KEYUSER.
+
+Обновление существующей установки: остановите приложение, обновите код, выполните npm.cmd ci --include=dev и npm.cmd run build, затем запустите npm.cmd start. Сохраните свой .env и существующую базу. Новые миграции применяются автоматически; создавать базу заново или повторно импортировать данные не нужно.
 
 ## Установка на Windows Server
 
@@ -30,8 +36,8 @@ GO
 3. В PowerShell:
 
 ```powershell
-git clone https://github.com/EvillHamster/MixControl-Version-1.4.git MixControl-1.4
-Set-Location .\MixControl-1.4
+git clone https://github.com/EvillHamster/MixControl-Version-1.4.git MixControl-1.5
+Set-Location .\MixControl-1.5
 node --version
 npm.cmd ci --include=dev
 Copy-Item .env.example .env

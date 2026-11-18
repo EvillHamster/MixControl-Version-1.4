@@ -52,7 +52,7 @@ function cookie(response: Response) {
   return header.split(";")[0];
 }
 
-test("MixControl 1.4 end-to-end — SQL Server 2019", async (t) => {
+test("MixControl 1.5 end-to-end — SQL Server 2019", async (t) => {
   const socket = createServer().listen(0, "127.0.0.1");
   await once(socket, "listening");
   const address = socket.address();
