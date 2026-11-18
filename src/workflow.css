@@ -772,3 +772,31 @@
   color: #8b5e24;
   font-size: 11px;
 }
+
+.correction-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.correction-filter-actions .button {
+  white-space: nowrap;
+}
+.correction-filters .clearable-filter > input,
+.correction-filters .clearable-filter > select {
+  width: 100%;
+  margin: 0;
+}
+.correction-filters .search > button {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  padding: 2px;
+}
+.correction-filters .search > button:hover {
+  color: #b43b3b;
+}
+@media (max-width: 700px) {
+  .correction-filter-actions {
+    grid-column: 1 / -1;
+  }
+}

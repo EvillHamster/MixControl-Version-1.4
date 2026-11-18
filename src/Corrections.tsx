@@ -19,6 +19,7 @@ import {
   type CorrectionStatus,
 } from "../shared/workflow";
 import { api } from "./api";
+import { ClearableFilter } from "./ClearableFilter";
 import { useAuth } from "./auth";
 type Assignee = { id: string; name: string; role: string; assignable: boolean };
 const n = (v: number | null) =>
@@ -116,6 +117,16 @@ export function Corrections({
     change();
     setPage(1);
   };
+  const hasFilters = !!(search || from || to || status || responsible);
+  function clearAllFilters() {
+    setSearch("");
+    setDebounced("");
+    setFrom("");
+    setTo("");
+    setStatus("");
+    setResponsible("");
+    setPage(1);
+  }
   async function download() {
     setExporting(true);
     try {
@@ -192,68 +203,121 @@ export function Corrections({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            {search && (
+              <button
+                type="button"
+                title="Очистить поиск корректировок"
+                aria-label="Очистить поиск корректировок"
+                onClick={(e) => {
+                  e.preventDefault();
+                  filter(() => {
+                    setSearch("");
+                    setDebounced("");
+                  });
+                }}
+              >
+                <X size={13} />
+              </button>
+            )}
           </label>
           <label>
             Дата с
-            <input
-              aria-label="Корректировки: дата с"
-              type="date"
-              value={from}
-              onChange={(e) => filter(() => setFrom(e.target.value))}
-            />
+            <ClearableFilter
+              active={!!from}
+              label="Очистить дату с корректировок"
+              onClear={() => filter(() => setFrom(""))}
+            >
+              <input
+                aria-label="Корректировки: дата с"
+                type="date"
+                value={from}
+                onChange={(e) => filter(() => setFrom(e.target.value))}
+              />
+            </ClearableFilter>
           </label>
           <label>
             Дата по
-            <input
-              aria-label="Корректировки: дата по"
-              type="date"
-              value={to}
-              onChange={(e) => filter(() => setTo(e.target.value))}
-            />
+            <ClearableFilter
+              active={!!to}
+              label="Очистить дату по корректировок"
+              onClear={() => filter(() => setTo(""))}
+            >
+              <input
+                aria-label="Корректировки: дата по"
+                type="date"
+                value={to}
+                onChange={(e) => filter(() => setTo(e.target.value))}
+              />
+            </ClearableFilter>
           </label>
           {view === "active" && (
             <label>
               Статус
-              <select
-                aria-label="Статус корректировки"
-                value={status}
-                onChange={(e) => filter(() => setStatus(e.target.value))}
+              <ClearableFilter
+                active={!!status}
+                label="Очистить статус корректировок"
+                onClear={() => filter(() => setStatus(""))}
               >
-                <option value="">Все статусы</option>
-                {Object.entries(correctionStatuses)
-                  .filter(([v]) => v !== "DONE")
-                  .map(([v, title]) => (
-                    <option key={v} value={v}>
-                      {title}
-                    </option>
-                  ))}
-              </select>
+                <select
+                  aria-label="Статус корректировки"
+                  value={status}
+                  onChange={(e) => filter(() => setStatus(e.target.value))}
+                >
+                  <option value="">Все статусы</option>
+                  {Object.entries(correctionStatuses)
+                    .filter(([v]) => v !== "DONE")
+                    .map(([v, title]) => (
+                      <option key={v} value={v}>
+                        {title}
+                      </option>
+                    ))}
+                </select>
+              </ClearableFilter>
             </label>
           )}
           <label>
             Ответственный
-            <select
-              aria-label="Ответственный: фильтр"
-              value={responsible}
-              onChange={(e) => filter(() => setResponsible(e.target.value))}
+            <ClearableFilter
+              active={!!responsible}
+              label="Очистить ответственного"
+              onClear={() => filter(() => setResponsible(""))}
             >
-              <option value="">Все ответственные</option>
-              <option value="none">Не назначен</option>
-              {assignees.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+              <select
+                aria-label="Ответственный: фильтр"
+                value={responsible}
+                onChange={(e) => filter(() => setResponsible(e.target.value))}
+              >
+                <option value="">Все ответственные</option>
+                <option value="none">Не назначен</option>
+                {assignees.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </ClearableFilter>
           </label>
-          <button
-            className="button secondary"
-            title="Обновить корректировки"
-            disabled={busy}
-            onClick={() => setRetry((r) => r + 1)}
-          >
-            <RefreshCw size={16} />
-          </button>
+          <div className="correction-filter-actions">
+            {hasFilters && (
+              <button
+                type="button"
+                className="button secondary"
+                title="Очистить все фильтры корректировок"
+                onClick={clearAllFilters}
+              >
+                <X size={15} />
+                Очистить все
+              </button>
+            )}
+            <button
+              className="button secondary"
+              title="Обновить корректировки"
+              disabled={busy}
+              onClick={() => setRetry((r) => r + 1)}
+            >
+              <RefreshCw size={16} />
+            </button>
+          </div>
         </div>
         {error && (
           <div className="error-banner" role="alert">
@@ -307,7 +371,9 @@ export function Corrections({
                       {r.sup}
                     </button>
                     {r.sourceDeleted && (
-                      <small className="source-deleted-note">Запись журнала удалена</small>
+                      <small className="source-deleted-note">
+                        Запись журнала удалена
+                      </small>
                     )}
                   </td>
                   <td>{r.mixtureName}</td>
@@ -426,7 +492,9 @@ export function Corrections({
   );
 }
 function DeleteCorrectionDialog({
-  correction, onClose, onDeleted,
+  correction,
+  onClose,
+  onDeleted,
 }: {
   correction: Correction;
   onClose: () => void;
@@ -449,9 +517,12 @@ function DeleteCorrectionDialog({
     setBusy(true);
     setError("");
     try {
-      await api("/corrections/" + correction.id + "?version=" + correction.version, {
-        method: "DELETE",
-      });
+      await api(
+        "/corrections/" + correction.id + "?version=" + correction.version,
+        {
+          method: "DELETE",
+        },
+      );
       onDeleted();
     } catch (e) {
       setError((e as Error).message);
@@ -470,28 +541,51 @@ function DeleteCorrectionDialog({
         onKeyDown={(e) => {
           if (e.key === "Escape" && !busy) onClose();
           if (e.key === "Tab") {
-            const nodes = root.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+            const nodes = root.current?.querySelectorAll<HTMLButtonElement>(
+              "button:not(:disabled)",
+            );
             if (!nodes?.length) return;
-            const first = nodes[0], last = nodes[nodes.length - 1];
+            const first = nodes[0],
+              last = nodes[nodes.length - 1];
             if (e.shiftKey && document.activeElement === first) {
-              e.preventDefault(); last.focus();
+              e.preventDefault();
+              last.focus();
             } else if (!e.shiftKey && document.activeElement === last) {
-              e.preventDefault(); first.focus();
+              e.preventDefault();
+              first.focus();
             }
           }
         }}
       >
         <h2 id="delete-correction-title">Удалить корректировку?</h2>
         <p className="modal-subtitle">
-          SUP {correction.sup} · {correction.mixtureName}. Корректировка и её история
-          будут удалены. Исходное измерение останется в журнале.
+          SUP {correction.sup} · {correction.mixtureName}. Корректировка и её
+          история будут удалены. Исходное измерение останется в журнале.
           Удаление будет зафиксировано в техническом аудите.
         </p>
-        {error && <div className="form-error" role="alert">{error}</div>}
+        {error && (
+          <div className="form-error" role="alert">
+            {error}
+          </div>
+        )}
         <div className="modal-buttons">
-          <button className="button secondary" disabled={busy} onClick={onClose}>Отмена</button>
-          <button className="button danger" disabled={busy} onClick={() => void remove()}>
-            {busy ? <Loader2 className="spin" size={16} /> : <Trash2 size={16} />}
+          <button
+            className="button secondary"
+            disabled={busy}
+            onClick={onClose}
+          >
+            Отмена
+          </button>
+          <button
+            className="button danger"
+            disabled={busy}
+            onClick={() => void remove()}
+          >
+            {busy ? (
+              <Loader2 className="spin" size={16} />
+            ) : (
+              <Trash2 size={16} />
+            )}
             Удалить
           </button>
         </div>
