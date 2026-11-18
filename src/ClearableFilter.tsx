@@ -1,5 +1,5 @@
 import { useRef, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { ClearFilterButton } from "./ClearFilterButton";
 import "./clearable-filter.css";
 
 export function ClearableFilter({
@@ -23,14 +23,10 @@ export function ClearableFilter({
     >
       {children}
       {active && (
-        <button
-          type="button"
+        <ClearFilterButton
           className="filter-clear"
-          title={label}
-          aria-label={label}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
+          label={label}
+          onClear={() => {
             onClear();
             root.current
               ?.querySelector<HTMLElement>(
@@ -38,9 +34,7 @@ export function ClearableFilter({
               )
               ?.focus({ preventScroll: true });
           }}
-        >
-          <X size={13} />
-        </button>
+        />
       )}
     </div>
   );

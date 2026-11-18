@@ -1,6 +1,7 @@
 import { matchesMixture } from "../shared/mixture-search";
 import { useState } from "react";
-import { FolderArchive, Pencil, Search, Trash2, X } from "lucide-react";
+import { FolderArchive, Pencil, Search, Trash2 } from "lucide-react";
+import { ClearFilterButton } from "./ClearFilterButton";
 import type { Mixture } from "../shared/domain";
 export function MixtureTable({
   mixtures,
@@ -55,18 +56,13 @@ export function MixtureTable({
             }}
           />
           {search && (
-            <button
-              type="button"
-              title="Очистить поиск смесей"
-              aria-label="Очистить поиск смесей"
-              onClick={(e) => {
-                e.preventDefault();
+            <ClearFilterButton
+              label="Очистить поиск смесей"
+              onClear={() => {
                 setSearch("");
                 setPage(1);
               }}
-            >
-              <X size={13} />
-            </button>
+            />
           )}
         </label>
       </div>

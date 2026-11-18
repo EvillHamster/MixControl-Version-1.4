@@ -1,5 +1,6 @@
 import { AccountSettings } from "./AccountSettings";
 import { ClearableFilter } from "./ClearableFilter";
+import { ClearFilterButton } from "./ClearFilterButton";
 import { MixturePicker } from "./MixturePicker";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -714,12 +715,10 @@ function App() {
                       aria-label="Поиск по SUP"
                     />
                     {search && (
-                      <button
-                        title="Очистить поиск"
-                        onClick={() => setSearch("")}
-                      >
-                        <X size={13} />
-                      </button>
+                      <ClearFilterButton
+                        label="Очистить поиск"
+                        onClear={() => setSearch("")}
+                      />
                     )}
                   </label>
                   <div className="filter-controls">

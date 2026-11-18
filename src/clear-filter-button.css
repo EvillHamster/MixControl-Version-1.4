@@ -1,0 +1,30 @@
+button.clear-filter-button,
+.search .clear-filter-button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #878f99;
+  box-shadow: none;
+}
+button.clear-filter-button:hover,
+button.clear-filter-button:active {
+  background: transparent;
+  color: #878f99;
+  box-shadow: none;
+}
+button.clear-filter-button > svg {
+  width: 13px;
+  height: 13px;
+  color: inherit;
+  stroke-width: 2;
+}
+button.clear-filter-button:focus-visible {
+  outline: 2px solid #8da8ce;
+  outline-offset: 1px;
+}

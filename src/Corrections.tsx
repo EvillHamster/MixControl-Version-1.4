@@ -20,6 +20,7 @@ import {
 } from "../shared/workflow";
 import { api } from "./api";
 import { ClearableFilter } from "./ClearableFilter";
+import { ClearFilterButton } from "./ClearFilterButton";
 import { useAuth } from "./auth";
 type Assignee = { id: string; name: string; role: string; assignable: boolean };
 const n = (v: number | null) =>
@@ -204,20 +205,15 @@ export function Corrections({
               onChange={(e) => setSearch(e.target.value)}
             />
             {search && (
-              <button
-                type="button"
-                title="Очистить поиск корректировок"
-                aria-label="Очистить поиск корректировок"
-                onClick={(e) => {
-                  e.preventDefault();
+              <ClearFilterButton
+                label="Очистить поиск корректировок"
+                onClear={() => {
                   filter(() => {
                     setSearch("");
                     setDebounced("");
                   });
                 }}
-              >
-                <X size={13} />
-              </button>
+              />
             )}
           </label>
           <label>
