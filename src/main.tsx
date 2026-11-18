@@ -1,4 +1,5 @@
 import { AccountSettings } from "./AccountSettings";
+import { ClearableFilter } from "./ClearableFilter";
 import { MixturePicker } from "./MixturePicker";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -393,7 +394,14 @@ function App() {
             : tab === "corrections"
               ? "Корректирующие действия"
               : "База смесей";
-  const hasFilters = !!(search || mixFilter || lineFilter || status || from || to);
+  const hasFilters = !!(
+    search ||
+    mixFilter ||
+    lineFilter ||
+    status ||
+    from ||
+    to
+  );
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -715,83 +723,129 @@ function App() {
                     )}
                   </label>
                   <div className="filter-controls">
-                    <div className="date-filter">
-                      <button
-                        className={
-                          "filter-button " + (from || to ? "selected" : "")
+                    <ClearableFilter
+                      active={!!(from || to)}
+                      label="Очистить даты"
+                      className="filter-dates"
+                      onClear={() => {
+                        filterChange(() => {
+                          setFrom("");
+                          setTo("");
+                        });
+                        setDateOpen(false);
+                      }}
+                    >
+                      <div className="date-filter">
+                        <button
+                          className={
+                            "filter-button " + (from || to ? "selected" : "")
+                          }
+                          onClick={() => setDateOpen(!dateOpen)}
+                        >
+                          <SlidersHorizontal size={15} />
+                          {from || to ? "Период выбран" : "Все даты"}
+                          <ChevronDown size={13} />
+                        </button>
+                        {dateOpen && (
+                          <div className="date-popover">
+                            <label>
+                              С даты
+                              <ClearableFilter
+                                active={!!from}
+                                label="Очистить дату с"
+                                onClear={() => filterChange(() => setFrom(""))}
+                              >
+                                <input
+                                  type="date"
+                                  value={from}
+                                  max={to || undefined}
+                                  onChange={(e) =>
+                                    filterChange(() => setFrom(e.target.value))
+                                  }
+                                />
+                              </ClearableFilter>
+                            </label>
+                            <label>
+                              По дату
+                              <ClearableFilter
+                                active={!!to}
+                                label="Очистить дату по"
+                                onClear={() => filterChange(() => setTo(""))}
+                              >
+                                <input
+                                  type="date"
+                                  value={to}
+                                  min={from || undefined}
+                                  onChange={(e) =>
+                                    filterChange(() => setTo(e.target.value))
+                                  }
+                                />
+                              </ClearableFilter>
+                            </label>
+                            <button
+                              className="button primary"
+                              onClick={() => setDateOpen(false)}
+                            >
+                              Применить
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </ClearableFilter>
+                    <ClearableFilter
+                      active={!!mixFilter}
+                      label="Очистить смесь"
+                      className="filter-mixture"
+                      onClear={() => filterChange(() => setMixFilter(""))}
+                    >
+                      <MixturePicker
+                        compact
+                        label="Фильтр по смеси"
+                        catalog={mixtures.map((m) => ({
+                          id: m.id,
+                          name: m.name + (m.archived ? " (архив)" : ""),
+                        }))}
+                        value={mixFilter}
+                        onChange={(id) => filterChange(() => setMixFilter(id))}
+                      />
+                    </ClearableFilter>
+                    <ClearableFilter
+                      active={!!lineFilter}
+                      label="Очистить линии"
+                      className="filter-line"
+                      onClear={() => filterChange(() => setLineFilter(""))}
+                    >
+                      <select
+                        aria-label="Линии"
+                        value={lineFilter}
+                        onChange={(e) =>
+                          filterChange(() => setLineFilter(e.target.value))
                         }
-                        onClick={() => setDateOpen(!dateOpen)}
                       >
-                        <SlidersHorizontal size={15} />
-                        {from || to ? "Период выбран" : "Все даты"}
-                        <ChevronDown size={13} />
-                      </button>
-                      {dateOpen && (
-                        <div className="date-popover">
-                          <label>
-                            С даты
-                            <input
-                              type="date"
-                              value={from}
-                              max={to || undefined}
-                              onChange={(e) =>
-                                filterChange(() => setFrom(e.target.value))
-                              }
-                            />
-                          </label>
-                          <label>
-                            По дату
-                            <input
-                              type="date"
-                              value={to}
-                              min={from || undefined}
-                              onChange={(e) =>
-                                filterChange(() => setTo(e.target.value))
-                              }
-                            />
-                          </label>
-                          <button
-                            className="button primary"
-                            onClick={() => setDateOpen(false)}
-                          >
-                            Применить
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    <MixturePicker
-                      compact
-                      label="Фильтр по смеси"
-                      catalog={mixtures.map((m) => ({
-                        id: m.id,
-                        name: m.name + (m.archived ? " (архив)" : ""),
-                      }))}
-                      value={mixFilter}
-                      onChange={(id) => filterChange(() => setMixFilter(id))}
-                    />
-                    <select
-                      aria-label="Линии"
-                      value={lineFilter}
-                      onChange={(e) =>
-                        filterChange(() => setLineFilter(e.target.value))
-                      }
+                        <option value="">Линии: все</option>
+                        <option value="MB">MB</option>
+                        <option value="FMF">FMF</option>
+                      </select>
+                    </ClearableFilter>
+                    <ClearableFilter
+                      active={!!status}
+                      label="Очистить результат"
+                      className="filter-result"
+                      onClear={() => filterChange(() => setStatus(""))}
                     >
-                      <option value="">Линии: все</option>
-                      <option value="MB">MB</option>
-                      <option value="FMF">FMF</option>
-                    </select>
-                    <select
-                      aria-label="Фильтр по результату"
-                      value={status}
-                      onChange={(e) =>
-                        filterChange(() => setStatus(e.target.value))
-                      }
-                    >
-                      <option value="">Все результаты</option>
-                      <option value="OK">OK — в норме</option>
-                      <option value="NOK">NOK — отклонение</option>
-                      <option value="pending">Ожидает данных</option>
-                    </select>
+                      <select
+                        aria-label="Фильтр по результату"
+                        value={status}
+                        onChange={(e) =>
+                          filterChange(() => setStatus(e.target.value))
+                        }
+                      >
+                        <option value="">Все результаты</option>
+                        <option value="OK">OK — в норме</option>
+                        <option value="NOK">NOK — отклонение</option>
+                        <option value="pending">Ожидает данных</option>
+                      </select>
+                    </ClearableFilter>
                     {hasFilters && (
                       <button
                         className="reset-filters"
@@ -883,9 +937,7 @@ function App() {
                                 : undefined
                             }
                           >
-                            {r.legacyPending
-                              ? "На переносе"
-                              : number(r.actual)}
+                            {r.legacyPending ? "На переносе" : number(r.actual)}
                           </td>
                           <td
                             className={
@@ -905,9 +957,7 @@ function App() {
                               {canManage && (
                                 <button
                                   title="Редактировать запись"
-                                  onClick={() =>
-                                    canManage && setRecordModal(r)
-                                  }
+                                  onClick={() => canManage && setRecordModal(r)}
                                 >
                                   <Pencil size={14} />
                                 </button>
@@ -1379,8 +1429,14 @@ function RecordForm({
             value={sup}
             onChange={(e) => setSup(e.target.value)}
             placeholder="Например, 0123456"
-            className={supState === "duplicate" || !/^[0-9]{7}$/.test(sup) ? "invalid" : ""}
-            aria-invalid={supState === "duplicate" || !/^[0-9]{7}$/.test(sup) || undefined}
+            className={
+              supState === "duplicate" || !/^[0-9]{7}$/.test(sup)
+                ? "invalid"
+                : ""
+            }
+            aria-invalid={
+              supState === "duplicate" || !/^[0-9]{7}$/.test(sup) || undefined
+            }
           />
           <small className={"sup-feedback " + supState}>
             {supState === "checking"

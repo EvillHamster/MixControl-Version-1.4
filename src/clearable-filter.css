@@ -1,0 +1,87 @@
+.clearable-filter {
+  position: relative;
+  min-width: 0;
+}
+.clearable-filter > select,
+.clearable-filter > input {
+  width: 100%;
+}
+.clearable-filter .filter-clear {
+  position: absolute;
+  right: 23px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: #7e858d;
+  background: transparent;
+  z-index: 2;
+}
+.clearable-filter .filter-clear:hover {
+  color: #b43b3b;
+  background: #fff0f0;
+}
+.clearable-filter.has-value > select,
+.clearable-filter.has-value > input {
+  padding-right: 48px;
+}
+.clearable-filter > input {
+  margin-top: 0;
+}
+.clearable-filter > .mixture-picker {
+  min-width: 0;
+  width: 100%;
+}
+.clearable-filter.has-value .mixture-picker-trigger {
+  padding-right: 48px;
+}
+.clearable-filter .mixture-picker-trigger > svg {
+  position: absolute;
+  right: 10px;
+}
+.filter-controls {
+  flex-wrap: wrap;
+}
+.filter-controls > .clearable-filter {
+  flex: 0 0 auto;
+}
+.filter-controls > .filter-mixture {
+  width: 190px;
+}
+.filter-controls > .filter-line {
+  width: 130px;
+}
+.filter-controls > .filter-result {
+  width: 180px;
+}
+.filter-controls .clearable-filter > select {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  padding-left: 10px;
+  padding-right: 25px;
+}
+.filter-controls .clearable-filter.has-value > select {
+  padding-right: 48px;
+}
+.filter-controls .date-filter .filter-button {
+  white-space: nowrap;
+  min-width: 130px;
+}
+.filter-controls .filter-dates.has-value .filter-button {
+  padding-right: 48px;
+}
+.filter-controls .filter-dates .filter-clear {
+  right: 24px;
+}
+.filter-controls .date-popover .filter-clear {
+  right: 30px;
+}
+.filter-controls .date-popover label input {
+  margin: 0;
+}
