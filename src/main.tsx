@@ -848,7 +848,8 @@ function App() {
                     </ClearableFilter>
                     {hasFilters && (
                       <button
-                        className="reset-filters"
+                        className="button secondary"
+                        type="button"
                         title="Сбросить фильтры"
                         onClick={() => {
                           setSearch("");
@@ -860,7 +861,8 @@ function App() {
                           setPage(1);
                         }}
                       >
-                        <X size={16} />
+                        <X size={15} />
+                        Очистить все
                       </button>
                     )}
                   </div>
