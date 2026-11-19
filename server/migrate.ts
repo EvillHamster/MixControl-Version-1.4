@@ -7,6 +7,7 @@ const migrations = [
   "002-workflow.sql",
   "003-login-format.sql",
   "004-retain-corrections.sql",
+  "005-persistent-sessions.sql",
 ];
 export async function migrate() {
   return transaction(async (db) => {

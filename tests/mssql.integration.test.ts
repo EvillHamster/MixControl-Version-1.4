@@ -146,6 +146,33 @@ test("MixControl 1.5 end-to-end — SQL Server 2019", async (t) => {
       equipment: number | null = 124,
     ) => ({ sup, mixtureId: mix, actual, equipment });
     await t.test(
+      "Сессия сохраняется без 12-часового лимита и отзывается при выходе",
+      async () => {
+        const login = await expect(sign(setupBody.login), 200);
+        const token = cookie(login);
+        assert.match(login.headers.get("set-cookie")!, /Max-Age=34560000/);
+        assert.match(login.headers.get("set-cookie")!, /HttpOnly/);
+        const sessions = (
+          await pool.query(
+            "SELECT expires_at FROM dbo.sessions WHERE user_id=$1",
+            [keyUser.id],
+          )
+        ).rows;
+        assert.ok(
+          sessions.length > 0 && sessions.every((s) => s.expires_at === null),
+        );
+        await pool.query(
+          "UPDATE dbo.sessions SET created_at=DATEADD(day,-30,SYSUTCDATETIME()) WHERE user_id=$1",
+          [keyUser.id],
+        );
+        const me = await expect(send("/auth/me", "GET", undefined, token), 200);
+        assert.match(me.headers.get("set-cookie")!, /Max-Age=34560000/);
+        await expect(send("/auth/logout", "POST", undefined, token), 204);
+        await expect(send("/auth/me", "GET", undefined, token), 401);
+        await expect(send("/auth/me", "GET", undefined, key), 200);
+      },
+    );
+    await t.test(
       "Авторизация, три роли, хеш, уникальность, настройки аккаунта",
       async () => {
         await expect(send("/records"), 401);
@@ -241,14 +268,28 @@ test("MixControl 1.5 end-to-end — SQL Server 2019", async (t) => {
         ).id;
         // NEWSEQUENTIALID on Windows can set bits that strict RFC validation rejects.
         const sequentialId = "24563190-5cb2-f101-bef7-00155d100e00";
-        await pool.query("UPDATE dbo.mixtures SET id=$1 WHERE id=$2", [sequentialId, mix]);
+        await pool.query("UPDATE dbo.mixtures SET id=$1 WHERE id=$2", [
+          sequentialId,
+          mix,
+        ]);
         mix = sequentialId;
         await expect(
-          send("/mixtures/" + mix, "PUT", { name: "Смесь для проверки", tMin: 100, tMax: 150 }, admin),
+          send(
+            "/mixtures/" + mix,
+            "PUT",
+            { name: "Смесь для проверки", tMin: 100, tMax: 150 },
+            admin,
+          ),
           200,
         );
-        await expect(send("/records?mixtureId=" + mix, "GET", undefined, employee), 200);
-        await expect(send("/records?mixtureId=not-a-guid", "GET", undefined, employee), 400);
+        await expect(
+          send("/records?mixtureId=" + mix, "GET", undefined, employee),
+          200,
+        );
+        await expect(
+          send("/records?mixtureId=not-a-guid", "GET", undefined, employee),
+          400,
+        );
         const opts = await (
           await expect(
             send("/mixtures/options", "GET", undefined, employee),
@@ -307,13 +348,25 @@ test("MixControl 1.5 end-to-end — SQL Server 2019", async (t) => {
           )
         ).json();
         assert.equal(exact.delta, 3);
-        const pending = await (
+        for (const actor of [employee, admin, key]) {
           await expect(
-            send("/records", "POST", input("0000103", null, 125), employee),
-            201,
-          )
-        ).json();
-        assert.equal(pending.status, null);
+            send("/records", "POST", input("0000103", null, 125), actor),
+            400,
+          );
+          await expect(
+            send("/records", "POST", input("0000103", 125, null), actor),
+            400,
+          );
+        }
+        await expect(
+          send(
+            "/records/" + record.id,
+            "PUT",
+            { ...input("0000100", null, 125), version: record.version },
+            admin,
+          ),
+          400,
+        );
         assert.equal(
           (
             await (
@@ -458,49 +511,173 @@ test("MixControl 1.5 end-to-end — SQL Server 2019", async (t) => {
           200,
         );
         assert.equal(
-          (await pool.query("SELECT id FROM dbo.corrective_actions WHERE id=$1", [task.id])).rowCount,
+          (
+            await pool.query(
+              "SELECT id FROM dbo.corrective_actions WHERE id=$1",
+              [task.id],
+            )
+          ).rowCount,
           1,
         );
-        const retained = await (await expect(
-          send("/corrections/" + task.id + "/history", "GET", undefined, admin), 200,
-        )).json();
+        const retained = await (
+          await expect(
+            send(
+              "/corrections/" + task.id + "/history",
+              "GET",
+              undefined,
+              admin,
+            ),
+            200,
+          )
+        ).json();
         assert.equal(retained.correction.sourceDeleted, true);
         assert.equal(retained.correction.measurementId, null);
         assert.equal(retained.correction.status, "DONE");
         assert.equal(retained.correction.workDone, "Образец проверен");
-        assert.ok(retained.events.some((e: any) => e.kind === "measurement_deleted"));
-        const deleteUrl = "/corrections/" + task.id + "?version=" + retained.correction.version;
+        assert.ok(
+          retained.events.some((e: any) => e.kind === "measurement_deleted"),
+        );
+        const deleteUrl =
+          "/corrections/" + task.id + "?version=" + retained.correction.version;
         await expect(send(deleteUrl, "DELETE", undefined, admin), 403);
         await expect(send(deleteUrl, "DELETE", undefined, employee), 403);
-        await expect(send("/corrections/" + task.id + "?version=" + task.version, "DELETE", undefined, key), 409);
+        await expect(
+          send(
+            "/corrections/" + task.id + "?version=" + task.version,
+            "DELETE",
+            undefined,
+            key,
+          ),
+          409,
+        );
         await expect(send(deleteUrl, "DELETE", undefined, key), 204);
-        await expect(send("/corrections/" + task.id, "GET", undefined, key), 404);
-        assert.equal((await pool.query(
-          "SELECT id FROM dbo.audit_log WHERE action='correction.deleted' AND entity_id=$1",
-          [task.id],
-        )).rowCount, 1);
+        await expect(
+          send("/corrections/" + task.id, "GET", undefined, key),
+          404,
+        );
+        assert.equal(
+          (
+            await pool.query(
+              "SELECT id FROM dbo.audit_log WHERE action='correction.deleted' AND entity_id=$1",
+              [task.id],
+            )
+          ).rowCount,
+          1,
+        );
 
         // Active actions also survive single-record deletion; unrelated actions remain.
-        const source = await (await expect(send("/records", "POST", input("0000130", 130, 120), admin), 201)).json();
-        let active = (await (await expect(send("/corrections?search=0000130", "GET", undefined, key), 200)).json()).rows[0];
+        const source = await (
+          await expect(
+            send("/records", "POST", input("0000130", 130, 120), admin),
+            201,
+          )
+        ).json();
+        let active = (
+          await (
+            await expect(
+              send("/corrections?search=0000130", "GET", undefined, key),
+              200,
+            )
+          ).json()
+        ).rows[0];
         assert.ok(active);
-        const changed = await (await expect(send("/records/" + source.id, "PUT", {
-          ...input("0000130", 122, 121), version: source.version,
-        }, admin), 200)).json();
-        active = (await (await expect(send("/corrections/" + active.id, "GET", undefined, key), 200)).json()).correction;
+        const changed = await (
+          await expect(
+            send(
+              "/records/" + source.id,
+              "PUT",
+              {
+                ...input("0000130", 122, 121),
+                version: source.version,
+              },
+              admin,
+            ),
+            200,
+          )
+        ).json();
+        active = (
+          await (
+            await expect(
+              send("/corrections/" + active.id, "GET", undefined, key),
+              200,
+            )
+          ).json()
+        ).correction;
         assert.equal(active.delta, 1); // Correcting temperatures must not delete the action.
-        await expect(send("/records/" + source.id + "?version=" + changed.version, "DELETE", undefined, admin), 204);
-        active = (await (await expect(send("/corrections/" + active.id, "GET", undefined, key), 200)).json()).correction;
+        await expect(
+          send(
+            "/records/" + source.id + "?version=" + changed.version,
+            "DELETE",
+            undefined,
+            admin,
+          ),
+          204,
+        );
+        active = (
+          await (
+            await expect(
+              send("/corrections/" + active.id, "GET", undefined, key),
+              200,
+            )
+          ).json()
+        ).correction;
         assert.equal(active.sourceDeleted, true);
         assert.equal(active.measurementKey, source.id);
-        const beforeCount = (await (await expect(send("/corrections/summary", "GET", undefined, key), 200)).json()).active;
-        await expect(send("/corrections/" + active.id + "?version=" + active.version, "DELETE", undefined, key), 204);
-        assert.equal((await (await expect(send("/corrections/summary", "GET", undefined, key), 200)).json()).active, beforeCount - 1);
-        const untouched = (await (await expect(send("/corrections?search=0000120", "GET", undefined, key), 200)).json()).rows;
+        const beforeCount = (
+          await (
+            await expect(
+              send("/corrections/summary", "GET", undefined, key),
+              200,
+            )
+          ).json()
+        ).active;
+        await expect(
+          send(
+            "/corrections/" + active.id + "?version=" + active.version,
+            "DELETE",
+            undefined,
+            key,
+          ),
+          204,
+        );
+        assert.equal(
+          (
+            await (
+              await expect(
+                send("/corrections/summary", "GET", undefined, key),
+                200,
+              )
+            ).json()
+          ).active,
+          beforeCount - 1,
+        );
+        const untouched = (
+          await (
+            await expect(
+              send("/corrections?search=0000120", "GET", undefined, key),
+              200,
+            )
+          ).json()
+        ).rows;
         assert.equal(untouched.length, 1);
         // Leave this orphan with its immutable key to verify snapshot restoration.
-        const original = (await (await expect(send("/records?search=0000120", "GET", undefined, key), 200)).json()).records[0];
-        await expect(send("/records/" + original.id + "?version=" + original.version, "DELETE", undefined, admin), 204);
+        const original = (
+          await (
+            await expect(
+              send("/records?search=0000120", "GET", undefined, key),
+              200,
+            )
+          ).json()
+        ).records[0];
+        await expect(
+          send(
+            "/records/" + original.id + "?version=" + original.version,
+            "DELETE",
+            undefined,
+            admin,
+          ),
+          204,
+        );
 
         assert.equal(
           (
@@ -670,38 +847,126 @@ test("MixControl 1.5 end-to-end — SQL Server 2019", async (t) => {
       assert.equal(profile.id, keyUser.id);
     });
 
-    await t.test("Линии MB/FMF: алфавит, регистр, страницы, Excel и удаление", async () => {
-      const names = ["M1-line", "m2-line", "М1-line", "м2-line", " m1-space", "M3-line", "FMF-line", "XM1-line"];
-      const mbSups = new Set(["8800000", "8800001", "8800002", "8800003", "8800004"]);
-      for (const [i, name] of names.entries()) {
-        const mixture = await (await expect(send("/mixtures", "POST", {
-          name, tMin: 100, tMax: 150,
-        }, admin), 201)).json();
-        await expect(send("/records", "POST", {
-          sup: String(8800000 + i), mixtureId: mixture.id, actual: 125, equipment: 125,
-        }, admin), 201);
-      }
-      const page = await (await expect(send("/records?search=880000&line=MB&size=2", "GET", undefined, admin), 200)).json();
-      assert.equal(page.total, 5);
-      assert.equal(page.records.length, 2);
-      assert.ok(page.records.every((r: any) => mbSups.has(r.sup)));
-      const fmf = await (await expect(send("/records?search=880000&line=FMF", "GET", undefined, admin), 200)).json();
-      assert.equal(fmf.total, 3);
-      assert.ok(fmf.records.every((r: any) => !mbSups.has(r.sup)));
-      await expect(send("/records?line=BAD", "GET", undefined, admin), 400);
-      const response = await expect(send("/records/export?search=880000&line=MB", "GET", undefined, admin), 200);
-      const book = new ExcelJS.Workbook();
-      await book.xlsx.load(Buffer.from(await response.arrayBuffer()) as any);
-      assert.equal(book.worksheets[0].actualRowCount, 6);
-      const preview = await (await expect(send("/records/delete-preview?search=880000&line=MB", "GET", undefined, admin), 200)).json();
-      assert.equal(preview.count, 5);
-      await expect(send("/records/by-filter", "DELETE", {
-        filters: { search: "880000", line: "MB" }, fingerprint: preview.fingerprint,
-      }, admin), 200);
-      const remaining = await (await expect(send("/records?search=880000", "GET", undefined, admin), 200)).json();
-      assert.equal(remaining.total, 3);
-      assert.ok(remaining.records.every((r: any) => !mbSups.has(r.sup)));
-    });
+    await t.test(
+      "Линии MB/FMF: алфавит, регистр, страницы, Excel и удаление",
+      async () => {
+        const names = [
+          "M1-line",
+          "m2-line",
+          "М1-line",
+          "м2-line",
+          " m1-space",
+          "M3-line",
+          "FMF-line",
+          "XM1-line",
+        ];
+        const mbSups = new Set([
+          "8800000",
+          "8800001",
+          "8800002",
+          "8800003",
+          "8800004",
+        ]);
+        for (const [i, name] of names.entries()) {
+          const mixture = await (
+            await expect(
+              send(
+                "/mixtures",
+                "POST",
+                {
+                  name,
+                  tMin: 100,
+                  tMax: 150,
+                },
+                admin,
+              ),
+              201,
+            )
+          ).json();
+          await expect(
+            send(
+              "/records",
+              "POST",
+              {
+                sup: String(8800000 + i),
+                mixtureId: mixture.id,
+                actual: 125,
+                equipment: 125,
+              },
+              admin,
+            ),
+            201,
+          );
+        }
+        const page = await (
+          await expect(
+            send(
+              "/records?search=880000&line=MB&size=2",
+              "GET",
+              undefined,
+              admin,
+            ),
+            200,
+          )
+        ).json();
+        assert.equal(page.total, 5);
+        assert.equal(page.records.length, 2);
+        assert.ok(page.records.every((r: any) => mbSups.has(r.sup)));
+        const fmf = await (
+          await expect(
+            send("/records?search=880000&line=FMF", "GET", undefined, admin),
+            200,
+          )
+        ).json();
+        assert.equal(fmf.total, 3);
+        assert.ok(fmf.records.every((r: any) => !mbSups.has(r.sup)));
+        await expect(send("/records?line=BAD", "GET", undefined, admin), 400);
+        const response = await expect(
+          send(
+            "/records/export?search=880000&line=MB",
+            "GET",
+            undefined,
+            admin,
+          ),
+          200,
+        );
+        const book = new ExcelJS.Workbook();
+        await book.xlsx.load(Buffer.from(await response.arrayBuffer()) as any);
+        assert.equal(book.worksheets[0].actualRowCount, 6);
+        const preview = await (
+          await expect(
+            send(
+              "/records/delete-preview?search=880000&line=MB",
+              "GET",
+              undefined,
+              admin,
+            ),
+            200,
+          )
+        ).json();
+        assert.equal(preview.count, 5);
+        await expect(
+          send(
+            "/records/by-filter",
+            "DELETE",
+            {
+              filters: { search: "880000", line: "MB" },
+              fingerprint: preview.fingerprint,
+            },
+            admin,
+          ),
+          200,
+        );
+        const remaining = await (
+          await expect(
+            send("/records?search=880000", "GET", undefined, admin),
+            200,
+          )
+        ).json();
+        assert.equal(remaining.total, 3);
+        assert.ok(remaining.records.every((r: any) => !mbSups.has(r.sup)));
+      },
+    );
 
     await t.test("Резервная копия и пробное восстановление", async () => {
       const restoreDb = process.env.SQLSERVER_TEST_RESTORE_DATABASE;

@@ -21,7 +21,7 @@ export function measurementWorkbook(rows: Measurement[]) {
     const rr = sheet.addRow({
       ...row,
       actual: row.legacyPending ? "На переносе" : row.actual,
-      status: row.status ?? "Ожидает",
+      status: row.status ?? "—",
     });
     for (let i = 4; i <= 7; i++) rr.getCell(i).numFmt = "0.00";
     rr.getCell(8).font = {

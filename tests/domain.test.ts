@@ -102,3 +102,18 @@ test("Поиск смесей ищет любую часть названия, �
     true,
   );
 });
+
+test("Сохранение требует обе корректные температуры, ноль допустим", () => {
+  for (const field of ["actual", "equipment"] as const) {
+    for (const value of [null, undefined, NaN, Infinity, -274, 10001]) {
+      assert.equal(
+        recordSchema.safeParse({ ...entry, [field]: value }).success,
+        false,
+      );
+    }
+    assert.equal(
+      recordSchema.safeParse({ ...entry, [field]: 0 }).success,
+      true,
+    );
+  }
+});

@@ -32,7 +32,6 @@ import {
   Search,
   Settings,
   SlidersHorizontal,
-  Thermometer,
   Trash2,
   X,
 } from "lucide-react";
@@ -72,9 +71,7 @@ type Data = {
 const emptyData: Data = { records: [], total: 0, ok: 0, nok: 0, pending: 0 };
 function Badge({ status }: { status: string | null }) {
   return (
-    <span className={`badge ${status ?? "pending"}`}>
-      {status ?? "Ожидает"}
-    </span>
+    <span className={`badge ${status ?? "pending"}`}>{status ?? "—"}</span>
   );
 }
 function App() {
@@ -311,9 +308,7 @@ function App() {
         ? "Смесь: " +
           (mixtures.find((m) => m.id === mixFilter)?.name || mixFilter)
         : "",
-      status
-        ? "Результат: " + (status === "pending" ? "Ожидает данных" : status)
-        : "",
+      status ? "Результат: " + status : "",
     ].filter(Boolean);
     try {
       const preview = await api<{ count: number; fingerprint: string }>(
@@ -475,7 +470,6 @@ function App() {
         </nav>
         <div className="sidebar-bottom">
           <button className="help-link" onClick={() => setHelp(true)}>
-            <CircleHelp size={18} />
             Как это работает
             <ArrowUpRight size={15} />
           </button>
@@ -619,13 +613,6 @@ function App() {
                     icon: Activity,
                     style: "bad",
                     text: "Требуют внимания",
-                  },
-                  {
-                    label: "Ожидают данных",
-                    value: data.pending,
-                    icon: Thermometer,
-                    style: "waiting",
-                    text: "Измерения не завершены",
                   },
                 ].map((s) => (
                   <article className={"stat " + s.style} key={s.style}>
@@ -842,7 +829,6 @@ function App() {
                         <option value="">Все результаты</option>
                         <option value="OK">OK — в норме</option>
                         <option value="NOK">NOK — отклонение</option>
-                        <option value="pending">Ожидает данных</option>
                       </select>
                     </ClearableFilter>
                     {hasFilters && (
@@ -1256,9 +1242,6 @@ function App() {
               </>
             ) : (
               <>
-                <span className="large-flask">
-                  <Thermometer size={26} />
-                </span>
                 <h2 id="modal-title">Контроль температур</h2>
                 <p className="modal-subtitle">
                   Добавьте смеси и нормативы в раздел «База смесей». Затем
@@ -1273,8 +1256,6 @@ function App() {
                   </p>
                   <Badge status="NOK" />
                   <p>Хотя бы одна из температур вышла за допустимые пределы.</p>
-                  <Badge status={null} />
-                  <p>Одна или обе фактические температуры ещё не введены.</p>
                 </div>
                 <button className="button primary full" onClick={closeModal}>
                   Понятно
@@ -1315,6 +1296,19 @@ function RecordForm({
   const norm = record && record.mixtureId === mixtureId ? record : mix;
   const actual = fact === "" ? null : Number(fact);
   const equipment = equipmentText === "" ? null : Number(equipmentText);
+  const validTemperature = (value: number | null) =>
+    value !== null &&
+    Number.isFinite(value) &&
+    value >= -273.15 &&
+    value <= 10000;
+  const actualInvalid = !validTemperature(actual);
+  const equipmentInvalid = !validTemperature(equipment);
+  const formValid =
+    /^[0-9]{7}$/.test(sup) &&
+    !!mixtureId &&
+    !actualInvalid &&
+    !equipmentInvalid &&
+    supState !== "duplicate";
   const { user } = useAuth();
   const canManage = user.role !== "EMPLOYEE";
   const foreignRecord = !!record && user.role === "EMPLOYEE";
@@ -1369,6 +1363,8 @@ function RecordForm({
       if (!/^[0-9]{7}$/.test(sup))
         throw new Error("SUP должен содержать ровно 7 цифр");
       if (!mixtureId) throw new Error("Выберите смесь");
+      if (actual === null) throw new Error("Введите T(fact)");
+      if (equipment === null) throw new Error("Введите T(обор)");
       if (!parsed.success) throw new Error(parsed.error.issues[0].message);
       const check = await api<{ available: boolean }>(
         `/records/check-sup?sup=${encodeURIComponent(sup.trim())}${record ? "&exclude=" + record.id : ""}`,
@@ -1393,7 +1389,7 @@ function RecordForm({
         },
       );
       onSave(
-        `${record ? "Запись обновлена" : "Запись добавлена"} · ${savedRecord.status ?? "Ожидает данных"}`,
+        `${record ? "Запись обновлена" : "Запись добавлена"} · ${savedRecord.status ?? "—"}`,
       );
     } catch (e) {
       setError((e as Error).message);
@@ -1492,7 +1488,7 @@ function RecordForm({
       )}
       <div className="form-grid temperature-fields">
         <label>
-          T(fact), °C
+          T(fact), °C <span className="required">*</span>
           <input
             type="number"
             min="-273.15"
@@ -1500,6 +1496,9 @@ function RecordForm({
             step="any"
             disabled={lockFact}
             placeholder="Не введено"
+            required
+            className={actualInvalid ? "invalid" : ""}
+            aria-invalid={actualInvalid || undefined}
             value={fact}
             onChange={(e) => setFact(e.target.value)}
           />
@@ -1510,7 +1509,7 @@ function RecordForm({
           )}
         </label>
         <label>
-          T(обор), °C
+          T(обор), °C <span className="required">*</span>
           <input
             type="number"
             min="-273.15"
@@ -1518,6 +1517,9 @@ function RecordForm({
             step="any"
             disabled={lockFact}
             placeholder="Не введено"
+            required
+            className={equipmentInvalid ? "invalid" : ""}
+            aria-invalid={equipmentInvalid || undefined}
             value={equipmentText}
             onChange={(e) => setEquipmentText(e.target.value)}
           />
@@ -1560,7 +1562,7 @@ function RecordForm({
         >
           Отмена
         </button>
-        <button className="button primary" disabled={saving}>
+        <button className="button primary" disabled={saving || !formValid}>
           {saving ? (
             <Loader2 className="spin" size={16} />
           ) : (

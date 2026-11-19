@@ -237,7 +237,7 @@ export function ImportDialog({
                             <>
                               <td>{r.actual ?? "—"}</td>
                               <td>{r.equipment ?? "—"}</td>
-                              <td>{r.status ?? "Ожидает"}</td>
+                              <td>{r.status ?? "—"}</td>
                             </>
                           )}
                         </tr>

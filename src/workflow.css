@@ -791,3 +791,29 @@
     grid-column: 1 / -1;
   }
 }
+
+/* Consistent alignment for the production tables. */
+:is(.measurement-table, .mixture-table table, .report-table, .correction-table) :is(th, td) {
+  text-align: center;
+}
+:is(.measurement-table, .mixture-table table) :is(th, td):first-child {
+  padding-right: 24px;
+}
+:is(.measurement-table, .mixture-table table, .report-table, .correction-table) th button {
+  margin-inline: auto;
+  justify-content: center;
+}
+:is(.measurement-table, .mixture-table, .report-table, .correction-table) :is(.mixture-cell, .row-actions) {
+  justify-content: center;
+}
+.correction-tabs {
+  justify-content: center;
+}
+.report-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+@media (max-width: 760px) {
+  .report-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

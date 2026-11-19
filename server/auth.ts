@@ -90,11 +90,12 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
   const token = cookieToken(req);
   if (!token) fail(401, "Войдите в систему");
   const r = await pool.query<User>(
-    `SELECT u.id,u.login,u.name,u.role,u.active,u.version FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>SYSUTCDATETIME() AND u.active=1 AND u.deleted_at IS NULL`,
+    `SELECT u.id,u.login,u.name,u.role,u.active,u.version FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND (s.expires_at IS NULL OR s.expires_at>SYSUTCDATETIME()) AND u.active=1 AND u.deleted_at IS NULL`,
     [hashToken(token)],
   );
   if (!r.rows[0]) fail(401, "Сессия завершена. Войдите снова.");
   res.locals.user = r.rows[0];
+  setSessionCookie(res, token);
   next();
 };
 export const requireAdmin: RequestHandler = (_req, res, next) => {
@@ -113,6 +114,13 @@ const cookieOptions = {
   secure: process.env.COOKIE_SECURE === "true",
   path: "/",
 };
+// Browsers cap persistent cookies at 400 days; renew on authenticated requests.
+function setSessionCookie(res: Response, token: string) {
+  res.cookie(cookieName, token, {
+    ...cookieOptions,
+    maxAge: 400 * 24 * 60 * 60 * 1000,
+  });
+}
 async function createSession(res: Response, user: User) {
   const token = randomBytes(32).toString("hex");
   await transaction(async (c) => {
@@ -123,14 +131,11 @@ async function createSession(res: Response, user: User) {
     if (!current.rowCount)
       fail(401, "Учётная запись изменена или удалена. Войдите снова.");
     await c.query(
-      "INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,DATEADD(hour,12,SYSUTCDATETIME()))",
+      "INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,NULL)",
       [hashToken(token), user.id],
     );
   });
-  res.cookie(cookieName, token, {
-    ...cookieOptions,
-    maxAge: 12 * 60 * 60 * 1000,
-  });
+  setSessionCookie(res, token);
   return user;
 }
 export const authService = {
@@ -200,7 +205,7 @@ export const authService = {
         account.version !== actor.version ||
         !(
           await c.query(
-            "SELECT 1 FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>SYSUTCDATETIME()",
+            "SELECT 1 FROM sessions WHERE token_hash=$1 AND user_id=$2 AND (expires_at IS NULL OR expires_at>SYSUTCDATETIME())",
             [hashToken(token), actor.id],
           )
         ).rowCount
