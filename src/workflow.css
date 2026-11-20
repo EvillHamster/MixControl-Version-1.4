@@ -14,6 +14,7 @@
   gap: 20px;
 }
 .report-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 0;
 }
 .report-stats .stat {
@@ -526,6 +527,7 @@
 }
 .correction-tabs {
   display: flex;
+  justify-content: flex-start;
   gap: 20px;
   padding: 0 22px;
   border-bottom: 1px solid #e7edf5;
@@ -793,27 +795,36 @@
 }
 
 /* Consistent alignment for the production tables. */
-:is(.measurement-table, .mixture-table table, .report-table, .correction-table) :is(th, td) {
+:is(.measurement-table, .mixture-table table, .report-table, .correction-table)
+  :is(th, td) {
   text-align: center;
 }
 :is(.measurement-table, .mixture-table table) :is(th, td):first-child {
   padding-right: 24px;
 }
-:is(.measurement-table, .mixture-table table, .report-table, .correction-table) th button {
+:is(.measurement-table, .mixture-table table, .report-table, .correction-table)
+  th
+  button {
   margin-inline: auto;
   justify-content: center;
 }
-:is(.measurement-table, .mixture-table, .report-table, .correction-table) :is(.mixture-cell, .row-actions) {
+:is(.measurement-table, .mixture-table, .report-table, .correction-table)
+  :is(.mixture-cell, .row-actions) {
   justify-content: center;
-}
-.correction-tabs {
-  justify-content: center;
-}
-.report-stats {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 @media (max-width: 760px) {
   .report-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+.mixture-table table :is(th, td):first-child {
+  text-align: left;
+}
+.mixture-table td:first-child .mixture-cell {
+  justify-content: flex-start;
+}
+.measurement-table .actions-th {
+  width: 96px;
+  min-width: 96px;
 }

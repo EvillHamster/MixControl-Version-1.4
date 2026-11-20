@@ -333,8 +333,7 @@ export function Corrections({
                 <th>Статус</th>
                 <th>Ответственный</th>
                 {view === "archive" && <th>Завершена</th>}
-                <th>История</th>
-                {canDelete && <th>Удаление</th>}
+                <th>Действия</th>
               </tr>
             </thead>
             <tbody>
@@ -392,7 +391,7 @@ export function Corrections({
                   <td>
                     <div className="row-actions">
                       <button
-                        title={"История корректировки " + r.sup}
+                        title="История записи"
                         onClick={(e) => {
                           e.stopPropagation();
                           setSelected({ id: r.id, history: true });
@@ -400,21 +399,19 @@ export function Corrections({
                       >
                         <History size={15} />
                       </button>
+                      {canDelete && (
+                        <button
+                          title="Удаление записи"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleting(r);
+                          }}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
                     </div>
                   </td>
-                  {canDelete && (
-                    <td>
-                      <button
-                        title={"Удалить корректировку " + r.sup}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleting(r);
-                        }}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </td>
-                  )}
                 </tr>
               ))}
             </tbody>

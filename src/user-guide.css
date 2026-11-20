@@ -1,0 +1,74 @@
+.user-guide-backdrop {
+  z-index: 200;
+}
+.modal.user-guide {
+  width: 80%;
+  min-width: 80%;
+  max-height: min(84dvh, 780px);
+  display: flex;
+  flex-direction: column;
+  padding: 50px;
+  font-size: 18px;
+  overflow: hidden;
+}
+.user-guide-header {
+  position: relative;
+  padding: 0 36px 18px 0;
+  flex-shrink: 0;
+  border-bottom: 1px solid #e7edf5;
+}
+.user-guide .user-guide-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.user-guide-header p {
+  margin: 10px 0 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #2860bd;
+}
+.user-guide-header p span {
+  display: inline-block;
+  margin-left: 12px;
+  color: #7b8798;
+  font-weight: 400;
+}
+.user-guide-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px;
+  font-size: 18px;
+  line-height: 1.65;
+  color: #52627a;
+}
+.user-guide-body:focus-visible {
+  outline: 2px solid #b7d2ff;
+  outline-offset: -3px;
+}
+.user-guide-body section {
+  padding-top: 20px;
+}
+.user-guide-body h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #263a57;
+  margin: 0 0 8px;
+}
+.user-guide-body ol {
+  list-style: decimal;
+  padding-left: 19px;
+  margin: 0;
+}
+.user-guide-body li + li {
+  margin-top: 7px;
+}
+@media (max-width: 540px) {
+  .modal.user-guide {
+    max-height: calc(100dvh - 26px);
+  }
+  .user-guide-header p span {
+    display: block;
+    margin: 5px 0 0;
+  }
+}

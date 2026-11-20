@@ -16,6 +16,7 @@ export function measurementWorkbook(rows: Measurement[]) {
       width: 19,
     })),
     { header: "Итог", key: "status", width: 16 },
+    { header: "ID измерения", key: "id", width: 40 },
   ];
   for (const row of rows) {
     const rr = sheet.addRow({
@@ -41,7 +42,7 @@ export function measurementWorkbook(rows: Measurement[]) {
     pattern: "solid",
     fgColor: { argb: "FF174E40" },
   };
-  sheet.autoFilter = "A1:H1";
+  sheet.autoFilter = "A1:I1";
   const legacyRows = rows.filter(
     (r) => r.actualMin !== null || r.actualMax !== null,
   );
@@ -49,6 +50,7 @@ export function measurementWorkbook(rows: Measurement[]) {
     const legacy = workbook.addWorksheet("Исходные измерения");
     legacy.columns = [
       { header: "SUP", key: "sup", width: 18 },
+      { header: "ID измерения", key: "id", width: 40 },
       { header: "Tmin (fact), °C — исходное", key: "actualMin", width: 30 },
       { header: "Tmax (fact), °C — исходное", key: "actualMax", width: 30 },
       { header: "Требуется перенос", key: "transfer", width: 25 },

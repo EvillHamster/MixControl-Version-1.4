@@ -933,15 +933,6 @@ tbody tr:hover {
   justify-content: space-between;
   gap: 8px;
 }
-.large-flask {
-  height: 44px;
-  width: 44px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background: #e9edf2;
-  color: #6e7f93;
-}
 .library-status {
   font-size: 9px;
   color: #92979c;
@@ -1122,15 +1113,6 @@ tbody tr:hover {
   padding: 4px;
   display: flex;
 }
-.modal-icon {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border-radius: 11px;
-  background: #e9eef4;
-  color: #6a7d94;
-}
 label {
   display: block;
   font-size: 11px;
@@ -1235,12 +1217,6 @@ label small {
   line-height: 1.7;
   margin: 12px 0;
 }
-.sup-feedback.valid {
-  color: #567294;
-}
-.sup-feedback.duplicate {
-  color: #b16f57;
-}
 input.invalid {
   border-color: #d8a28a;
 }
@@ -1256,33 +1232,12 @@ input.invalid {
   border-radius: 7px;
   margin: 21px 0;
 }
-.delete-symbol {
-  display: grid;
-  place-items: center;
-  width: 48px;
-  height: 48px;
-  background: #fcf0e8;
-  color: #b37c5b;
-  border-radius: 12px;
-}
 .danger {
   background: #bc6e55;
   color: white;
 }
 .danger:hover {
   background: #a75b44;
-}
-.help-rules {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 18px 12px;
-  align-items: start;
-  margin-bottom: 25px;
-}
-.help-rules p {
-  font-size: 12px;
-  color: #738295;
-  line-height: 1.7;
 }
 .full {
   width: 100%;

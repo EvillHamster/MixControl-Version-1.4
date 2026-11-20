@@ -6,6 +6,7 @@ import { lock, output, pool, type DbClient } from "./db.js";
 import { audit, transaction, setAuditActor } from "./audit.js";
 import { fail } from "./repository.js";
 import {
+  databaseIdSchema,
   mixtureSchema,
   recordSchema,
   result,
@@ -27,6 +28,8 @@ const header = (s: unknown) =>
 const headers: Record<string, string> = {
   дата: "date",
   sup: "sup",
+  id: "id",
+  idизмерения: "id",
   смесь: "name",
   названиесмеси: "name",
   название: "name",
@@ -186,26 +189,31 @@ async function plan(
     const k = normalize(mix.name);
     names.set(k, [...(names.get(k) ?? []), mix]);
   }
-  const sups = source.map((r) => String(r.values.sup ?? "").trim());
+  const ids = source
+    .map((r) => String(r.values.id ?? "").trim())
+    .filter((id) => databaseIdSchema.safeParse(id).success);
   const existing =
-    kind === "records"
+    kind === "records" && ids.length
       ? (
           await c.query(
             "SELECT * FROM dbo.measurements" +
               (locked ? " WITH (UPDLOCK,HOLDLOCK)" : "") +
-              " WHERE sup IN (SELECT [value] COLLATE Latin1_General_100_BIN2 FROM OPENJSON($1)) ORDER BY sup",
-            [JSON.stringify(sups)],
+              " WHERE id IN (SELECT TRY_CONVERT(uniqueidentifier,[value]) FROM OPENJSON($1))",
+            [JSON.stringify(ids)],
           )
         ).rows
       : [];
-  const records = new Map(existing.map((r) => [r.sup, r]));
+  const records = new Map(existing.map((r) => [r.id, r]));
   const occurrences = new Map<string, number[]>();
   for (const row of source) {
     const key =
       kind === "records"
-        ? String(row.values.sup ?? "").trim()
+        ? normalize(row.values.id)
         : normalize(row.values.name);
-    occurrences.set(key, [...(occurrences.get(key) ?? []), row.row]);
+    if (!key) continue;
+    const group = occurrences.get(key) ?? [];
+    group.push(row.row);
+    occurrences.set(key, group);
   }
   const errors: ImportIssue[] = [];
   const rows: any[] = [];
@@ -213,7 +221,8 @@ async function plan(
     const v = sourceRow.values;
     const sup = String(v.sup ?? "").trim(),
       name = String(v.name ?? "").trim(),
-      old = records.get(sup);
+      recordId = normalize(v.id),
+      old = records.get(recordId);
     const issue = (message: string) =>
       errors.push({
         row: sourceRow.row,
@@ -224,12 +233,13 @@ async function plan(
       });
     try {
       if (sourceRow.error) throw new Error(sourceRow.error);
-      const duplicates = occurrences.get(
-        kind === "records" ? sup : normalize(name),
-      )!;
+      const duplicates =
+        occurrences.get(kind === "records" ? recordId : normalize(name)) ?? [];
       if (duplicates.length > 1)
         throw new Error(
-          (kind === "records" ? "Дублирующийся SUP" : "Повторяющаяся смесь") +
+          (kind === "records"
+            ? "Повторяющийся ID измерения"
+            : "Повторяющаяся смесь") +
             " в импортируемом файле; строки " +
             duplicates.join(", "),
         );
@@ -257,6 +267,12 @@ async function plan(
           operation: mix ? "Обновление" : "Добавление",
         });
       } else {
+        if (recordId && !databaseIdSchema.safeParse(recordId).success)
+          throw new Error("Некорректный ID измерения");
+        if (recordId && !old)
+          throw new Error(
+            "Измерение с указанным ID не найдено. Для нового измерения оставьте ID пустым.",
+          );
         if (!/^[0-9]{7}$/.test(sup))
           throw new Error(
             "SUP должен содержать ровно 7 цифр; ведущие нули храните в Excel как текст",
@@ -270,8 +286,8 @@ async function plan(
             old.mixture_id !== mix.id)
         )
           throw new Error(
-            "Для SUP " +
-              sup +
+            "Для ID " +
+              recordId +
               " уже зарегистрирована другая смесь. Запись не обновлена",
           );
         if (!old && mix.archived)
@@ -294,22 +310,12 @@ async function plan(
           throw new Error(
             validated.error.issues.map((i) => i.message).join(". "),
           );
-        let status = result(
+        const status = result(
           norms.data.tMin,
           norms.data.tMax,
           actual,
           equipment,
         );
-        if (old?.legacy_pending && actual === null && status !== "NOK") {
-          status =
-            old.actual_min === null || old.actual_max === null
-              ? null
-              : old.actual_min >= norms.data.tMin &&
-                  old.actual_max <= norms.data.tMax &&
-                  old.actual_min <= old.actual_max
-                ? "OK"
-                : "NOK";
-        }
         rows.push({
           row: sourceRow.row,
           sup,

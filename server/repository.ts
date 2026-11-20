@@ -1,10 +1,12 @@
 import sql from "mssql";
+import { canEditMeasurement } from "../shared/permissions.js";
 import { countsSql, lock, output, pool, type DbClient } from "./db.js";
 import { audit, transaction, assertActor } from "./audit.js";
 import { z } from "zod";
 import {
   databaseIdSchema,
   recordSchema,
+  employeeRecordSchema,
   type Measurement,
   type Mixture,
   type User,
@@ -35,7 +37,8 @@ function filters(query: Record<string, unknown>) {
   if (q.search) add("CHARINDEX(?,sup)>0", q.search.trim().toUpperCase());
   if (q.mixtureId) add("mixture_id=?", q.mixtureId);
   if (q.line) {
-    const prefix = "LEFT(UPPER(LTRIM(mixture_name)) COLLATE Latin1_General_100_BIN2,2)";
+    const prefix =
+      "LEFT(UPPER(LTRIM(mixture_name)) COLLATE Latin1_General_100_BIN2,2)";
     const mb = prefix + " IN (N'M1',N'M2',N'М1',N'М2')";
     clauses.push(q.line === "MB" ? mb : "NOT (" + mb + ")");
   }
@@ -156,14 +159,6 @@ export const mixtureRepository = {
   },
 };
 export const recordRepository = {
-  async supAvailable(sup: string, exclude: string | null) {
-    return !(
-      await pool.query(
-        "SELECT 1 FROM measurements WHERE sup=$1 AND (CONVERT(uniqueidentifier,$2) IS NULL OR id<>$2)",
-        [sup.trim().toUpperCase(), exclude],
-      )
-    ).rowCount;
-  },
   async list(query: Record<string, unknown>) {
     const { where, values } = filters(query);
     const page = z.coerce.number().int().min(1).default(1).parse(query.page),
@@ -266,14 +261,12 @@ export const recordRepository = {
   },
   async save(
     recordId: string | null,
-    d: z.infer<typeof recordSchema>,
+    d: z.infer<typeof recordSchema> | z.infer<typeof employeeRecordSchema>,
     actor: User,
   ) {
-    if (recordId && actor.role === "EMPLOYEE")
-      fail(403, "EMPLOYEE не может редактировать сохранённые записи");
     if (recordId && !d.version) fail(400, "Не указана версия записи");
     return transaction(async (c) => {
-      await assertActor(c, actor, !!recordId);
+      await assertActor(c, actor, actor.role !== "EMPLOYEE");
       await lock(c, "workflow");
       let previous;
       if (recordId) {
@@ -284,8 +277,17 @@ export const recordRepository = {
           )
         ).rows[0];
         if (!previous) fail(404, "Запись не найдена");
-        if (actor.role === "EMPLOYEE")
-          fail(403, "EMPLOYEE не может редактировать сохранённые записи");
+        if (!canEditMeasurement(actor, { createdBy: previous.created_by }))
+          fail(403, "Можно редактировать только собственные записи");
+        if (
+          actor.role === "EMPLOYEE" &&
+          ((d.actual !== undefined && d.actual !== previous.actual) ||
+            (d.equipment !== undefined && d.equipment !== previous.equipment))
+        )
+          fail(
+            403,
+            "Изменение сохранённых температур доступно ADMIN и KEYUSER",
+          );
         if (previous.version !== d.version)
           fail(409, "Запись изменена другим пользователем. Обновите страницу.");
       }
@@ -311,8 +313,10 @@ export const recordRepository = {
         snapshot.name,
         snapshot.t_min,
         snapshot.t_max,
-        d.actual,
-        d.equipment,
+        actor.role === "EMPLOYEE" && previous ? previous.actual : d.actual,
+        actor.role === "EMPLOYEE" && previous
+          ? previous.equipment
+          : d.equipment,
       ];
       const sql = recordId
         ? output(

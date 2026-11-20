@@ -1,3 +1,5 @@
+import { canEditMeasurement } from "../shared/permissions";
+import { UserGuide } from "./UserGuide";
 import { AccountSettings } from "./AccountSettings";
 import { ClearableFilter } from "./ClearableFilter";
 import { ClearFilterButton } from "./ClearFilterButton";
@@ -22,7 +24,6 @@ import {
   ClipboardList,
   Download,
   Upload,
-  FolderArchive,
   LayoutDashboard,
   Loader2,
   LogOut,
@@ -39,6 +40,7 @@ import {
   result,
   mixtureRangeError,
   recordSchema,
+  employeeRecordSchema,
   type Measurement,
   type Mixture,
 } from "../shared/domain";
@@ -212,25 +214,42 @@ function App() {
     recordModal !== undefined ||
     mixtureModal !== undefined ||
     !!deletion ||
-    !!bulkDeletion ||
-    help;
+    !!bulkDeletion;
   useEffect(() => {
-    if (!modalOpen) return;
+    if (!modalOpen && !help) return;
     const old = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = old;
     };
-  }, [modalOpen]);
+  }, [modalOpen, help]);
   useEffect(() => {
-    if (!modalOpen) return;
     const handler = (e: KeyboardEvent) => {
+      if (e.key === "F1") {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setHelp(true);
+        return;
+      }
+      if (help && e.key === "Escape") {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setHelp(false);
+        return;
+      }
+      if (!modalOpen && !help) return;
       if (e.key === "Escape" && !busy) closeModal();
       if (e.key === "Tab") {
         const nodes = Array.from(
-          document.querySelectorAll<HTMLElement>(
-            '[role="dialog"] button:not(:disabled),[role="dialog"] input,[role="dialog"] select,[role="dialog"] a',
-          ),
+          help
+            ? (document
+                .querySelector("[data-user-guide]")
+                ?.querySelectorAll<HTMLElement>(
+                  'button:not(:disabled),[tabindex="0"]',
+                ) ?? [])
+            : document.querySelectorAll<HTMLElement>(
+                '[role="dialog"] button:not(:disabled),[role="dialog"] input,[role="dialog"] select,[role="dialog"] a',
+              ),
         );
         const first = nodes[0],
           last = nodes[nodes.length - 1];
@@ -242,10 +261,11 @@ function App() {
           first?.focus();
         }
       }
+      if (help) e.stopImmediatePropagation();
     };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [modalOpen, busy]);
+    document.addEventListener("keydown", handler, true);
+    return () => document.removeEventListener("keydown", handler, true);
+  }, [modalOpen, busy, help]);
   function closeModal() {
     setRecordModal(undefined);
     setMixtureModal(undefined);
@@ -882,7 +902,7 @@ function App() {
                             </button>
                           </th>
                         ))}
-                        <th className="actions-th" />
+                        <th className="actions-th">Действия</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -896,13 +916,15 @@ function App() {
                           </td>
                           <td className="sup-cell">
                             <button
-                              disabled={!canManage}
+                              disabled={!canEditMeasurement(user, r)}
                               title={
                                 r.authorName
                                   ? `Автор: ${r.authorName}`
                                   : "Историческая запись"
                               }
-                              onClick={() => canManage && setRecordModal(r)}
+                              onClick={() =>
+                                canEditMeasurement(user, r) && setRecordModal(r)
+                              }
                             >
                               {r.sup}
                             </button>
@@ -941,10 +963,13 @@ function App() {
                           </td>
                           <td>
                             <div className="row-actions">
-                              {canManage && (
+                              {canEditMeasurement(user, r) && (
                                 <button
                                   title="Редактировать запись"
-                                  onClick={() => canManage && setRecordModal(r)}
+                                  onClick={() =>
+                                    canEditMeasurement(user, r) &&
+                                    setRecordModal(r)
+                                  }
                                 >
                                   <Pencil size={14} />
                                 </button>
@@ -1107,6 +1132,7 @@ function App() {
           }}
         />
       )}
+      {help && <UserGuide role={user.role} onClose={() => setHelp(false)} />}
       {toast && (
         <div className="toast" role="status">
           <Check size={18} />
@@ -1154,9 +1180,6 @@ function App() {
               />
             ) : bulkDeletion ? (
               <>
-                <span className="delete-symbol">
-                  <Trash2 size={25} />
-                </span>
                 <h2 id="modal-title">Удалить записи по фильтрам?</h2>
                 <p className="modal-subtitle">
                   Будет удалено записей:{" "}
@@ -1202,9 +1225,6 @@ function App() {
               </>
             ) : deletion ? (
               <>
-                <span className="delete-symbol">
-                  <Trash2 size={25} />
-                </span>
                 <h2 id="modal-title">
                   Удалить {deletion.type === "record" ? "запись" : "смесь"}?
                 </h2>
@@ -1240,28 +1260,7 @@ function App() {
                   </button>
                 </div>
               </>
-            ) : (
-              <>
-                <h2 id="modal-title">Контроль температур</h2>
-                <p className="modal-subtitle">
-                  Добавьте смеси и нормативы в раздел «База смесей». Затем
-                  создайте запись с уникальным SUP и введите фактические
-                  температуры.
-                </p>
-                <div className="help-rules">
-                  <Badge status="OK" />
-                  <p>
-                    T(fact) и T(обор) находятся в допустимом диапазоне T min — T
-                    max.
-                  </p>
-                  <Badge status="NOK" />
-                  <p>Хотя бы одна из температур вышла за допустимые пределы.</p>
-                </div>
-                <button className="button primary full" onClick={closeModal}>
-                  Понятно
-                </button>
-              </>
-            )}
+            ) : null}
           </section>
         </div>
       )}
@@ -1288,10 +1287,7 @@ function RecordForm({
       record?.equipment?.toString() ?? "",
     ),
     [error, setError] = useState(""),
-    [saving, setSaving] = useState(false),
-    [supState, setSupState] = useState<
-      "idle" | "checking" | "valid" | "duplicate" | "error"
-    >("idle");
+    [saving, setSaving] = useState(false);
   const mix = mixtures.find((m) => m.id === mixtureId);
   const norm = record && record.mixtureId === mixtureId ? record : mix;
   const actual = fact === "" ? null : Number(fact);
@@ -1303,42 +1299,19 @@ function RecordForm({
     value <= 10000;
   const actualInvalid = !validTemperature(actual);
   const equipmentInvalid = !validTemperature(equipment);
+  const { user } = useAuth();
   const formValid =
     /^[0-9]{7}$/.test(sup) &&
     !!mixtureId &&
-    !actualInvalid &&
-    !equipmentInvalid &&
-    supState !== "duplicate";
-  const { user } = useAuth();
+    ((!!record && user.role === "EMPLOYEE") ||
+      (!actualInvalid && !equipmentInvalid));
   const canManage = user.role !== "EMPLOYEE";
-  const foreignRecord = !!record && user.role === "EMPLOYEE";
+  const foreignRecord = !!record && !canEditMeasurement(user, record);
   const lockFact = !!record && user.role === "EMPLOYEE";
   const status =
     canManage && norm && norm.tMin !== null && norm.tMax !== null
       ? result(norm.tMin, norm.tMax, actual, equipment)
       : null;
-  useEffect(() => {
-    if (!/^[0-9]{7}$/.test(sup)) {
-      setSupState("idle");
-      return;
-    }
-    const controller = new AbortController();
-    setSupState("checking");
-    const t = setTimeout(() => {
-      api<{ available: boolean }>(
-        `/records/check-sup?sup=${encodeURIComponent(sup.trim())}${record ? "&exclude=" + record.id : ""}`,
-        { signal: controller.signal },
-      )
-        .then((v) => setSupState(v.available ? "valid" : "duplicate"))
-        .catch((e) => {
-          if (e.name !== "AbortError") setSupState("error");
-        });
-    }, 350);
-    return () => {
-      clearTimeout(t);
-      controller.abort();
-    };
-  }, [sup, record?.id]);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -1353,39 +1326,28 @@ function RecordForm({
         ).some((input) => input.validity.badInput)
       )
         throw new Error("Введите корректные числовые значения температур");
-      const parsed = recordSchema.safeParse({
+      const editingEmployee = !!record && user.role === "EMPLOYEE";
+      const parsed = (
+        editingEmployee ? employeeRecordSchema : recordSchema
+      ).safeParse({
         sup,
         mixtureId,
-        actual,
-        equipment,
+        ...(!editingEmployee ? { actual, equipment } : {}),
         version: record?.version,
       });
       if (!/^[0-9]{7}$/.test(sup))
         throw new Error("SUP должен содержать ровно 7 цифр");
       if (!mixtureId) throw new Error("Выберите смесь");
-      if (actual === null) throw new Error("Введите T(fact)");
-      if (equipment === null) throw new Error("Введите T(обор)");
+      if (!editingEmployee && actual === null)
+        throw new Error("Введите T(fact)");
+      if (!editingEmployee && equipment === null)
+        throw new Error("Введите T(обор)");
       if (!parsed.success) throw new Error(parsed.error.issues[0].message);
-      const check = await api<{ available: boolean }>(
-        `/records/check-sup?sup=${encodeURIComponent(sup.trim())}${record ? "&exclude=" + record.id : ""}`,
-      );
-      if (!check.available) {
-        setSupState("duplicate");
-        throw new Error(
-          "SUP уже существует. Введите уникальный идентификатор.",
-        );
-      }
       const savedRecord = await api<Measurement>(
         record ? "/records/" + record.id : "/records",
         {
           method: record ? "PUT" : "POST",
-          body: JSON.stringify({
-            sup,
-            mixtureId,
-            actual,
-            equipment,
-            version: record?.version,
-          }),
+          body: JSON.stringify(parsed.data),
         },
       );
       onSave(
@@ -1400,9 +1362,6 @@ function RecordForm({
   }
   return (
     <form className="record-form" noValidate onSubmit={submit}>
-      <div className="modal-icon">
-        <ClipboardList size={22} />
-      </div>
       <h2 id="modal-title">
         {record ? "Редактировать запись" : "Новое измерение"}
       </h2>
@@ -1426,25 +1385,11 @@ function RecordForm({
             value={sup}
             onChange={(e) => setSup(e.target.value)}
             placeholder="Например, 0123456"
-            className={
-              supState === "duplicate" || !/^[0-9]{7}$/.test(sup)
-                ? "invalid"
-                : ""
-            }
-            aria-invalid={
-              supState === "duplicate" || !/^[0-9]{7}$/.test(sup) || undefined
-            }
+            className={!/^[0-9]{7}$/.test(sup) ? "invalid" : ""}
+            aria-invalid={!/^[0-9]{7}$/.test(sup) || undefined}
           />
-          <small className={"sup-feedback " + supState}>
-            {supState === "checking"
-              ? "Проверяем уникальность…"
-              : supState === "duplicate"
-                ? "Этот SUP уже существует"
-                : supState === "valid"
-                  ? "SUP доступен"
-                  : supState === "error"
-                    ? "Проверим SUP при сохранении"
-                    : "Ровно 7 цифр, включая ведущие нули"}
+          <small>
+            Ровно 7 цифр. Повторные измерения с тем же SUP разрешены.
           </small>
         </label>
         <div className="span-2">
@@ -1670,7 +1615,7 @@ function MixtureForm({
         </div>
       )}
       <div className="form-info">
-        <CircleHelp size={17} />
+        {mixture && <CircleHelp size={17} />}
         <span>
           Существующие записи сохранят первоначальные нормативы и результаты
           проверок.

@@ -13,3 +13,10 @@ export function assignableRoles(actor: Pick<User, "role">): Role[] {
       ? ["EMPLOYEE", "ADMIN"]
       : [];
 }
+
+export function canEditMeasurement(
+  actor: Pick<User, "id" | "role">,
+  record: { createdBy: string | null },
+) {
+  return isManager(actor) || record.createdBy === actor.id;
+}

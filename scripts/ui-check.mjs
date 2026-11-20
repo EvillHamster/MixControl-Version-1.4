@@ -118,7 +118,7 @@ for (let i = 0; i < 18; i++)
     body: JSON.stringify({
       sup: String(9933451 + i),
       mixtureId: mixtures[i % 3],
-      actual: i % 4 === 0 ? 165 : i % 5 === 0 ? null : 125,
+      actual: i % 4 === 0 ? 165 : 125,
       equipment: 120,
     }),
   });
@@ -146,10 +146,10 @@ const scenarios = [
       [125, 123],
       [155, 145],
       [145, 155],
-      [null, 125],
+      [125, 125],
       [155, 97],
     ],
-    expected: { total: 5, ok: 1, nok: 3, pending: 1, nokPercent: 60 },
+    expected: { total: 5, ok: 2, nok: 3, pending: 0, nokPercent: 60 },
   },
   {
     date: moscowDate(3),

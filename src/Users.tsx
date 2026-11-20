@@ -333,9 +333,6 @@ function UserForm({
       >
         <X size={20} />
       </button>
-      <span className="modal-icon">
-        <UserRound size={22} />
-      </span>
       <h2 id="user-title">
         {user ? "Редактировать пользователя" : "Новый пользователь"}
       </h2>

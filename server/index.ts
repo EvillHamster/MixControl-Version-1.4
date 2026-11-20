@@ -6,7 +6,12 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { pool } from "./db.js";
 import { migrate } from "./migrate.js";
-import { databaseIdSchema, mixtureSchema, recordSchema, supSchema } from "../shared/domain.js";
+import {
+  databaseIdSchema,
+  mixtureSchema,
+  recordSchema,
+  employeeRecordSchema,
+} from "../shared/domain.js";
 import { mixtureRepository, recordRepository } from "./repository.js";
 import { previewImport, confirmImport, mixtureWorkbook } from "./imports.js";
 import { measurementWorkbook } from "./excel.js";
@@ -213,7 +218,10 @@ app.put("/api/mixtures/:id", requireAdmin, async (req, res) =>
   ),
 );
 app.delete("/api/mixtures/:id", requireAdmin, async (req, res) => {
-  await mixtureRepository.delete(databaseIdSchema.parse(req.params.id), currentUser(res));
+  await mixtureRepository.delete(
+    databaseIdSchema.parse(req.params.id),
+    currentUser(res),
+  );
   res.status(204).end();
 });
 app.get("/api/records/delete-preview", requireAdmin, async (req, res) => {
@@ -234,15 +242,6 @@ app.delete("/api/records/by-filter", requireAdmin, async (req, res) => {
       currentUser(res),
     ),
   );
-});
-app.get("/api/records/check-sup", async (req, res) => {
-  const sup = supSchema.parse(req.query.sup);
-  res.json({
-    available: await recordRepository.supAvailable(
-      sup,
-      req.query.exclude ? databaseIdSchema.parse(req.query.exclude) : null,
-    ),
-  });
 });
 app.get("/api/records/export", requireAdmin, async (req, res) => {
   const workbook = measurementWorkbook(
@@ -273,11 +272,14 @@ app.post("/api/records", async (req, res) =>
       ),
     ),
 );
-app.put("/api/records/:id", requireAdmin, async (req, res) =>
+app.put("/api/records/:id", async (req, res) =>
   res.json(
     await recordRepository.save(
       databaseIdSchema.parse(req.params.id),
-      recordSchema.parse(req.body),
+      (currentUser(res).role === "EMPLOYEE"
+        ? employeeRecordSchema
+        : recordSchema
+      ).parse(req.body),
       currentUser(res),
     ),
   ),
@@ -297,7 +299,12 @@ app.get("/api/corrections/summary", requireAdmin, async (_req, res) =>
   res.json(await correctionRepository.summary()),
 );
 app.get("/api/corrections/:id/history", requireAdmin, async (req, res) =>
-  res.json(await correctionRepository.detail(databaseIdSchema.parse(req.params.id), req.query)),
+  res.json(
+    await correctionRepository.detail(
+      databaseIdSchema.parse(req.params.id),
+      req.query,
+    ),
+  ),
 );
 app.get("/api/corrections/assignees", requireAdmin, async (_req, res) =>
   res.json(await correctionRepository.assignees()),
@@ -313,7 +320,12 @@ app.get("/api/corrections", requireAdmin, async (req, res) =>
   res.json(await correctionRepository.list(req.query)),
 );
 app.get("/api/corrections/:id", requireAdmin, async (req, res) =>
-  res.json(await correctionRepository.detail(databaseIdSchema.parse(req.params.id), req.query)),
+  res.json(
+    await correctionRepository.detail(
+      databaseIdSchema.parse(req.params.id),
+      req.query,
+    ),
+  ),
 );
 app.put("/api/corrections/:id", requireAdmin, async (req, res) =>
   res.json(
@@ -384,9 +396,7 @@ app.use(
               ? "В системе уже есть KEYUSER. Эта роль может быть только у одного пользователя."
               : names("users_login_unique")
                 ? "Такой логин уже существует"
-                : names("measurements_sup_unique")
-                  ? "Такой SUP уже существует. Укажите уникальный идентификатор."
-                  : "Запись с такими уникальными данными уже существует."
+                : "Запись с такими уникальными данными уже существует."
             : referenced
               ? "Смесь используется в журнале. Архивируйте её вместо удаления."
               : invalid

@@ -54,6 +54,15 @@ export const recordSchema = z.object({
   equipment: temperature,
   version: z.number().int().positive().optional(),
 });
+// Employee edits never grant access to stored temperatures or metadata.
+export const employeeRecordSchema = recordSchema
+  .pick({ sup: true, mixtureId: true })
+  .extend({
+    version: z.number().int().positive(),
+    actual: temperature.nullable().optional(),
+    equipment: temperature.nullable().optional(),
+  })
+  .strict();
 export interface Mixture {
   id: string;
   name: string;

@@ -52,7 +52,7 @@ function cookie(response: Response) {
   return header.split(";")[0];
 }
 
-test("MixControl 1.5 end-to-end — SQL Server 2019", async (t) => {
+test("MixControl 1.6 end-to-end — SQL Server 2019", async (t) => {
   const socket = createServer().listen(0, "127.0.0.1");
   await once(socket, "listening");
   const address = socket.address();
@@ -320,19 +320,28 @@ test("MixControl 1.5 end-to-end — SQL Server 2019", async (t) => {
           send("/records", "POST", input("0000100"), employee),
           send("/records", "POST", input("0000100"), admin),
         ]);
-        assert.deepEqual(raced.map((r) => r.status).sort(), [201, 409]);
-        record = await raced.find((r) => r.status === 201)!.json();
+        assert.deepEqual(
+          raced.map((r) => r.status),
+          [201, 201],
+        );
+        record = await raced[0].json();
+        const repeated = await raced[1].json();
+        assert.notEqual(record.id, repeated.id);
         assert.equal(record.status, "OK");
         assert.equal(record.date, today);
-        await expect(
-          send(
-            "/records/" + record.id,
-            "PUT",
-            { ...input("0000100"), version: record.version },
-            employee,
-          ),
-          403,
-        );
+        record = await (
+          await expect(
+            send(
+              "/records/" + record.id,
+              "PUT",
+              { sup: "0000100", mixtureId: mix, version: record.version },
+              employee,
+            ),
+            200,
+          )
+        ).json();
+        assert.equal(record.actual, 125);
+        assert.equal(record.equipment, 124);
         await expect(send("/mixtures/" + mix, "DELETE", undefined, admin), 409);
         const out = await (
           await expect(
@@ -378,6 +387,211 @@ test("MixControl 1.5 end-to-end — SQL Server 2019", async (t) => {
           ).active,
           1,
         );
+      },
+    );
+
+    await t.test(
+      "Сотрудник: собственные SUP и смесь, запреты, версии и исторические температуры",
+      async () => {
+        const otherMixture = await (
+          await expect(
+            send(
+              "/mixtures",
+              "POST",
+              { name: "Исправленная смесь", tMin: 100, tMax: 140 },
+              admin,
+            ),
+            201,
+          )
+        ).json();
+        let own = await (
+          await expect(
+            send("/records", "POST", input("7770001"), employee),
+            201,
+          )
+        ).json();
+        const foreign = await (
+          await expect(send("/records", "POST", input("7770002"), admin), 201)
+        ).json();
+        const changed = {
+          sup: "7770002",
+          mixtureId: otherMixture.id,
+          version: own.version,
+        };
+        await expect(
+          send(
+            "/records/" + foreign.id,
+            "PUT",
+            { ...changed, version: foreign.version },
+            employee,
+          ),
+          403,
+        );
+        for (const patch of [{ actual: 126 }, { equipment: 126 }]) {
+          await expect(
+            send(
+              "/records/" + own.id,
+              "PUT",
+              { ...changed, ...patch },
+              employee,
+            ),
+            403,
+          );
+        }
+        for (const patch of [
+          { date: oldDay },
+          { createdBy: adminUser.id },
+          { tMin: 0 },
+        ]) {
+          await expect(
+            send(
+              "/records/" + own.id,
+              "PUT",
+              { ...changed, ...patch },
+              employee,
+            ),
+            400,
+          );
+        }
+        const before = own;
+        own = await (
+          await expect(
+            send("/records/" + own.id, "PUT", changed, employee),
+            200,
+          )
+        ).json();
+        assert.equal(own.sup, "7770002");
+        assert.equal(own.mixtureId, otherMixture.id);
+        assert.equal(own.createdBy, user.id);
+        assert.equal(own.date, before.date);
+        assert.deepEqual(
+          [own.actual, own.equipment],
+          [before.actual, before.equipment],
+        );
+        assert.deepEqual([own.tMin, own.tMax], [100, 140]);
+        await expect(send("/records/" + own.id, "PUT", changed, employee), 409);
+        await expect(
+          send(
+            "/records/" + own.id + "?version=" + own.version,
+            "DELETE",
+            undefined,
+            employee,
+          ),
+          403,
+        );
+        const concurrent = await Promise.all(
+          [1, 2].map(() =>
+            send(
+              "/records/" + own.id,
+              "PUT",
+              { sup: own.sup, mixtureId: own.mixtureId, version: own.version },
+              employee,
+            ),
+          ),
+        );
+        assert.deepEqual(concurrent.map((r) => r.status).sort(), [200, 409]);
+        const legacy = await (
+          await expect(
+            send("/records", "POST", input("7770003"), employee),
+            201,
+          )
+        ).json();
+        await pool.query(
+          "UPDATE dbo.measurements SET actual=NULL,equipment=NULL,legacy_pending=1,actual_min=120,actual_max=130 WHERE id=$1",
+          [legacy.id],
+        );
+        const migrated = await (
+          await expect(
+            send(
+              "/records/" + legacy.id,
+              "PUT",
+              { sup: "7770004", mixtureId: mix, version: legacy.version },
+              employee,
+            ),
+            200,
+          )
+        ).json();
+        assert.deepEqual(
+          [
+            migrated.actual,
+            migrated.equipment,
+            migrated.actualMin,
+            migrated.actualMax,
+            migrated.legacyPending,
+          ],
+          [null, null, 120, 130, true],
+        );
+        assert.ok(
+          (
+            await pool.query(
+              "SELECT id FROM dbo.audit_log WHERE action='record.update' AND actor_id=$1 AND entity_id=$2",
+              [user.id, own.id],
+            )
+          ).rowCount,
+        );
+      },
+    );
+    await t.test(
+      "Повторный SUP: отдельная история NOK/OK, страницы, фильтры и удаление по ID",
+      async () => {
+        const attempts = [];
+        for (let i = 0; i < 17; i++)
+          attempts.push(
+            await (
+              await expect(
+                send(
+                  "/records",
+                  "POST",
+                  input("7788888", i === 0 ? 155 : 125, i === 0 ? 154 : 124),
+                  employee,
+                ),
+                201,
+              )
+            ).json(),
+          );
+        assert.equal(new Set(attempts.map((r) => r.id)).size, 17);
+        assert.equal(attempts[0].status, "NOK");
+        assert.equal(attempts[1].status, "OK");
+        const list = async (query = "") =>
+          (
+            await expect(
+              send(
+                "/records?search=7788888&sort=sup&direction=asc" + query,
+                "GET",
+                undefined,
+                employee,
+              ),
+              200,
+            )
+          ).json();
+        const first = await list("&page=1"),
+          second = await list("&page=2");
+        assert.equal(first.total, 17);
+        assert.equal(first.records.length, 15);
+        assert.equal(second.records.length, 2);
+        assert.ok(
+          !second.records.some((r: any) =>
+            first.records.some((s: any) => s.id === r.id),
+          ),
+        );
+        const nok = await list("&status=NOK");
+        assert.equal(nok.total, 1);
+        assert.equal(nok.records[0].id, attempts[0].id);
+        const filtered = await list(
+          "&mixtureId=" + mix + "&from=" + today + "&to=" + today,
+        );
+        assert.equal(filtered.total, 17);
+        await expect(
+          send(
+            "/records/" + attempts[1].id + "?version=" + attempts[1].version,
+            "DELETE",
+            undefined,
+            admin,
+          ),
+          204,
+        );
+        assert.equal((await list()).total, 16);
+        assert.equal((await list("&status=NOK")).records[0].id, attempts[0].id);
       },
     );
     await t.test(
@@ -688,6 +902,135 @@ test("MixControl 1.5 end-to-end — SQL Server 2019", async (t) => {
           ).rowCount,
           1,
         );
+      },
+    );
+
+    await t.test(
+      "Импорт повторных SUP не перезаписывает историю, обновление только по ID",
+      async () => {
+        const makeBook = async (rows: any[][], omitEquipment = false) => {
+          const wb = new ExcelJS.Workbook(),
+            ws = wb.addWorksheet("Журнал");
+          const headings = [
+            "Дата",
+            "SUP",
+            "Смесь",
+            "T min",
+            "T max",
+            "T(fact)",
+            "T(обор)",
+            "Итог",
+            "ID измерения",
+          ];
+          ws.addRow(headings.filter((_, i) => !omitEquipment || i !== 6));
+          for (const row of rows)
+            ws.addRow(row.filter((_, i) => !omitEquipment || i !== 6));
+          return Buffer.from(await wb.xlsx.writeBuffer());
+        };
+        const preview = async (rows: any[][], omitEquipment = false) =>
+          (
+            await expect(
+              fetch(base + "/records/import/preview", {
+                method: "POST",
+                headers: { Cookie: key, "Content-Type": workbookType },
+                body: await makeBook(rows, omitEquipment),
+              }),
+              200,
+            )
+          ).json();
+        const row = [
+          today,
+          "7799999",
+          "Смесь для проверки",
+          100,
+          150,
+          125,
+          124,
+          "",
+        ];
+        const plan = await preview([row, row]);
+        assert.equal(plan.errorCount, 0);
+        assert.equal(plan.added, 2);
+        await expect(
+          send("/records/import/confirm", "POST", { id: plan.id }, key),
+          200,
+        );
+        let saved = (
+          await (
+            await expect(
+              send("/records?search=7799999", "GET", undefined, key),
+              200,
+            )
+          ).json()
+        ).records;
+        assert.equal(saved.length, 2);
+        assert.notEqual(saved[0].id, saved[1].id);
+        const repeat = await preview([row]);
+        assert.equal(repeat.added, 1);
+        assert.equal(repeat.updated, 0);
+        await expect(
+          send("/records/import/confirm", "POST", { id: repeat.id }, key),
+          200,
+        );
+        const updateRow: any[] = [...row];
+        updateRow[5] = 130;
+        updateRow[6] = null;
+        const update = await preview([[...updateRow, saved[0].id]], true);
+        assert.equal(update.errorCount, 0, JSON.stringify(update.errors));
+        assert.equal(update.updated, 1);
+        await expect(
+          send("/records/import/confirm", "POST", { id: update.id }, key),
+          200,
+        );
+        saved = (
+          await (
+            await expect(
+              send("/records?search=7799999", "GET", undefined, key),
+              200,
+            )
+          ).json()
+        ).records;
+        assert.equal(saved.length, 3);
+        assert.equal(saved.filter((r: any) => r.actual === 130).length, 1);
+        assert.equal(saved.find((r: any) => r.actual === 130).equipment, 124);
+        const duplicateId = await preview([
+          [...row, saved[0].id],
+          [...row, saved[0].id],
+        ]);
+        assert.equal(duplicateId.errorCount, 2);
+        const invalid = await preview([[...row, "not-a-guid"]]);
+        assert.equal(invalid.errorCount, 1);
+        const missing = await preview([
+          [...row, "11111111-1111-4111-8111-111111111111"],
+        ]);
+        assert.equal(missing.errorCount, 1);
+        const before = await preview([[...row, saved[0].id]]);
+        await expect(
+          send(
+            "/records/" + saved[0].id,
+            "PUT",
+            { ...input("7799999", 126, 124), version: saved[0].version },
+            admin,
+          ),
+          200,
+        );
+        await expect(
+          send("/records/import/confirm", "POST", { id: before.id }, key),
+          409,
+        );
+        const exportResponse = await expect(
+          send("/records/export?search=7799999", "GET", undefined, key),
+          200,
+        );
+        const book = new ExcelJS.Workbook();
+        await book.xlsx.load(
+          Buffer.from(await exportResponse.arrayBuffer()) as any,
+        );
+        assert.equal(
+          book.worksheets[0].getRow(1).getCell(9).text,
+          "ID измерения",
+        );
+        assert.equal(book.worksheets[0].rowCount, 4);
       },
     );
     await t.test(

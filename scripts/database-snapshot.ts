@@ -135,7 +135,7 @@ async function main() {
     !tables.every((t) => Array.isArray(backup.tables[t]))
   )
     throw new Error(
-      "Нужен полный снимок MixControl 1.3 (схема 11) или MixControl 1.4/1.5. Рабочие данные не изменены.",
+      "Нужен полный снимок MixControl 1.3 (схема 11) или MixControl 1.4/1.5/1.6. Рабочие данные не изменены.",
     );
 
   await transaction(async (c) => {

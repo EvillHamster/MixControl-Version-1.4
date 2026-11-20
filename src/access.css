@@ -234,13 +234,6 @@ nav button.active {
   background: #f3f6fc;
   color: #8094b7;
 }
-.modal-icon {
-  background: #edf3ff;
-  color: #5884d3;
-}
-.sup-feedback.valid {
-  color: #5385bd;
-}
 .library-status.live {
   background: #eef4ff;
   color: #597cb5;
@@ -396,9 +389,6 @@ th button {
 }
 .record-form .form-grid {
   gap: 18px;
-}
-.record-form .modal-icon {
-  margin-bottom: 0;
 }
 .record-form .modal-buttons {
   margin-top: 6px;

@@ -117,3 +117,76 @@ test("Сохранение требует обе корректные темпе
     );
   }
 });
+
+// Permissions are shared by the table and server ownership checks.
+test("Сотрудник редактирует только собственные измерения", async () => {
+  const { canEditMeasurement } = await import("../shared/permissions.js");
+  assert.equal(
+    canEditMeasurement({ id: "a", role: "EMPLOYEE" }, { createdBy: "a" }),
+    true,
+  );
+  assert.equal(
+    canEditMeasurement({ id: "b", role: "EMPLOYEE" }, { createdBy: "a" }),
+    false,
+  );
+  assert.equal(
+    canEditMeasurement({ id: "b", role: "EMPLOYEE" }, { createdBy: null }),
+    false,
+  );
+  for (const role of ["ADMIN", "KEYUSER"] as const)
+    assert.equal(
+      canEditMeasurement({ id: "b", role }, { createdBy: "a" }),
+      true,
+    );
+});
+
+test("Руководство соответствует доступным разделам и ограничениям трёх ролей", async () => {
+  const { getUserGuide } = await import("../src/user-guide-content.js");
+  const employee = getUserGuide("EMPLOYEE");
+  assert.equal(employee.roleName, "Сотрудник");
+  assert.ok(
+    employee.sections.some((s) => s.title === "Исправление своих записей"),
+  );
+  for (const title of [
+    "База смесей",
+    "Корректирующие действия",
+    "Пользователи",
+    "Импорт и экспорт",
+    "Свой логин и пароль",
+  ])
+    assert.ok(!employee.sections.some((s) => s.title === title), title);
+  const admin = getUserGuide("ADMIN"),
+    key = getUserGuide("KEYUSER");
+  assert.ok(admin.sections.some((s) => s.title === "Пользователи"));
+  assert.ok(!admin.sections.some((s) => s.title === "Свой логин и пароль"));
+  assert.ok(key.sections.some((s) => s.title === "Свой логин и пароль"));
+  assert.match(
+    admin.sections
+      .find((s) => s.title === "Корректирующие действия")!
+      .steps.at(-1)!,
+    /удалять их может только KEYUSER/,
+  );
+  assert.match(
+    key.sections
+      .find((s) => s.title === "Корректирующие действия")!
+      .steps.at(-1)!,
+    /Только KEYUSER может удалить/,
+  );
+  for (const role of ["EMPLOYEE", "ADMIN", "KEYUSER"] as const) {
+    const g = getUserGuide(role);
+    assert.equal(
+      new Set(g.sections.map((s) => s.title)).size,
+      g.sections.length,
+    );
+    assert.match(
+      g.sections.find((s) => s.title === "Новое измерение")!.steps.join(" "),
+      /7 цифр/,
+    );
+    assert.match(
+      g.sections
+        .find((s) => s.title === "Результат и повторное измерение")!
+        .steps.join(" "),
+      /тем же SUP/,
+    );
+  }
+});
