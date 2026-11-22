@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 const display = (date: string) => date.split("-").reverse().join(".");
 export function ReportHistory({
   dates,
@@ -70,8 +70,13 @@ export function ReportHistory({
           setOpen((v) => !v);
         }}
       >
+        <Calendar
+          size={16}
+          strokeWidth={1.6}
+          className="date-filter-icon"
+          aria-hidden="true"
+        />
         <span>{value ? display(value) : "Выберите дату"}</span>
-        <CalendarDays size={16} />
       </button>
       {open && (
         <div

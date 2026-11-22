@@ -14,8 +14,8 @@ button.clear-filter-button,
 }
 button.clear-filter-button:hover,
 button.clear-filter-button:active {
-  background: transparent;
-  color: #878f99;
+  background: #eef4ff;
+  color: #2563eb;
   box-shadow: none;
 }
 button.clear-filter-button > svg {

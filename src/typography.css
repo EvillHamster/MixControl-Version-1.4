@@ -1,0 +1,310 @@
+/* Typography scale matched to BlockBatches/dist/app.css. */
+:root {
+  --text-caption: 12px;
+  --text-secondary: 13px;
+  --text-ui: 14px;
+  --text-input: 15px;
+  --text-body: 16px;
+  font-size: var(--text-body);
+}
+@media (min-width: 901px) {
+  .sidebar nav button {
+    font-size: var(--text-ui);
+  }
+}
+.profile strong {
+  font-size: 14px;
+}
+.profile small,
+.help-link {
+  font-size: 12px;
+}
+.breadcrumbs,
+.header-date,
+.connection,
+.signed-in {
+  font-size: 13px;
+}
+.eyebrow {
+  font-size: 12px;
+}
+h1 {
+  font-size: 32px;
+}
+.page-heading p {
+  font-size: 16px;
+  line-height: 1.65;
+}
+.button {
+  font-size: 14px;
+  min-height: 42px;
+}
+.stat-title {
+  font-size: 14px;
+}
+.stat-value {
+  font-size: 36px;
+}
+.stat-description {
+  font-size: 13px;
+}
+.table-panel-heading h2 {
+  font-size: 17px;
+}
+.table-panel-heading h2 > span {
+  font-size: 12px;
+}
+.table-panel-heading p {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.search input,
+.correction-filters .search input {
+  font-size: 14px;
+}
+.filter-controls select,
+.filter-button {
+  font-size: 14px;
+  height: 40px;
+}
+.mixture-picker,
+.mixture-picker-compact,
+.mixture-picker > span,
+.mixture-picker-compact .mixture-picker-trigger,
+.mixture-picker-popup [role="option"],
+.mixture-picker-popup p,
+.mixture-picker .mixture-picker-search input {
+  font-size: 14px;
+}
+.mixture-picker-compact .mixture-picker-trigger {
+  height: 40px;
+  min-height: 40px;
+}
+.correction-filters > label:not(.search),
+.workflow-controls label {
+  font-size: 14px;
+}
+.correction-filters input,
+.correction-filters select,
+.workflow-controls input,
+.workflow-controls select {
+  font-size: 14px;
+  height: 40px;
+}
+
+table {
+  font-size: 14px;
+}
+th,
+th button,
+.report-table th,
+.correction-table th,
+.import-preview th {
+  font-size: 13px;
+}
+td,
+.date-cell,
+.sup-cell button,
+.report-table td,
+.correction-table td,
+.import-preview td,
+.correction-table .text-button {
+  font-size: 14px;
+}
+.measurement-table .badge {
+  font-size: 14px;
+}
+.unit,
+.library-status,
+.segment-tabs span,
+.source-deleted-note {
+  font-size: 12px;
+}
+.correction-status,
+.role-label,
+.segment-tabs button,
+.correction-tabs button {
+  font-size: 14px;
+}
+.table-footer,
+.pagination > span:first-child {
+  font-size: 13px;
+}
+.pagination button,
+.page-number {
+  font-size: 14px;
+}
+.pagination button,
+.page-number {
+  min-width: 30px;
+  min-height: 30px;
+}
+.library-note,
+.workflow-note {
+  font-size: 14px;
+  line-height: 1.7;
+}
+.compact-empty,
+.empty-state p {
+  font-size: 15px;
+}
+.empty-state h3 {
+  font-size: 18px;
+}
+
+.modal:not(.user-guide) h2 {
+  font-size: 24px;
+}
+.modal-subtitle {
+  font-size: 14px;
+}
+.modal label,
+.modal .password-field,
+.correction-editor label,
+.correction-comments form label {
+  font-size: 14px;
+}
+.modal label input,
+.modal label select,
+.modal label textarea,
+.modal .password-field input {
+  font-size: 15px;
+}
+.modal label input:not([type="checkbox"]):not([type="radio"]),
+.modal label select,
+.modal .password-field input {
+  min-height: 44px;
+}
+.modal .form-error,
+.modal .form-info,
+.modal .result-preview strong,
+.import-hint,
+.import-counts,
+.import-progress {
+  font-size: 14px;
+}
+.modal .norm-preview > span,
+.modal .norm-preview strong {
+  font-size: 16px;
+}
+.modal .result-preview small,
+.modal label small,
+.modal .norm-preview small {
+  font-size: 12px;
+}
+.modal .result-preview .badge {
+  font-size: 14px;
+}
+.correction-summary dt {
+  font-size: 13px;
+}
+.correction-summary dd {
+  font-size: 16px;
+}
+.auth-card > p,
+.auth-card > label,
+.auth-card .button,
+.auth-card > .password-field {
+  font-size: 14px;
+}
+.auth-card input {
+  font-size: 15px;
+}
+.auth-card.auth-login input {
+  font-size: 16px;
+}
+.auth-card.auth-login > .button {
+  font-size: 15px;
+}
+.toast {
+  font-size: 14px;
+}
+
+@media (max-width: 700px) {
+  .page-heading h1 {
+    font-size: 28px;
+  }
+  .page-heading p {
+    font-size: 15px;
+  }
+  .eyebrow {
+    font-size: 11px;
+  }
+  .table-footer,
+  .pagination > span:first-child {
+    font-size: 12px;
+  }
+}
+
+.profile strong {
+  font-size: 14px;
+}
+.profile small,
+.nav-count {
+  font-size: 12px;
+}
+.breadcrumbs,
+.header-date,
+.connection,
+.signed-in {
+  font-size: 13px;
+}
+.help-link {
+  font-size: 13px;
+}
+.filter-controls > .filter-result {
+  width: 210px;
+}
+@media (min-width: 901px) {
+  .sidebar nav button {
+    font-size: 14px;
+  }
+}
+
+/* Supporting controls and history use the same readable body/caption scale. */
+.date-popover label,
+.report-history {
+  font-size: 14px;
+}
+.date-popover label input {
+  font-size: 15px;
+}
+.workflow-controls .report-history-month select,
+.report-history-days > button {
+  font-size: 14px;
+}
+.report-history-days > span,
+.report-history-calendar > p {
+  font-size: 12px;
+}
+.workflow-entry,
+.correction-comment,
+.correction-history article {
+  font-size: 14px;
+}
+.workflow-entry header,
+.correction-comment > div,
+.correction-history article > div,
+.history-pages span,
+.correction-history-pages,
+.correction-save span,
+.comment-submit small {
+  font-size: 13px;
+}
+.correction-summary > div:last-child dd {
+  font-size: 14px;
+}
+.correction-editor select,
+.correction-editor textarea,
+.correction-comments textarea {
+  font-size: 15px;
+}
+
+.record-form .required-field-note {
+  display: block;
+  margin-top: 6px;
+  color: #ef4444;
+  font-size: 12px;
+  line-height: 1.5;
+}

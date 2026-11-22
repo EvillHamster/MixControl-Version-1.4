@@ -1,0 +1,44 @@
+.date-filter-icon {
+  flex-shrink: 0;
+  color: #7e858d;
+}
+.date-filter-input {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+.date-filter-input > .date-filter-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  pointer-events: none;
+}
+.date-filter-input > input[type="date"] {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding-left: 34px;
+}
+.clearable-filter.has-value .date-filter-input > input[type="date"] {
+  padding-right: 48px;
+}
+/* Keep the native picker clickable under the common calendar mark. */
+.date-filter-input > input[type="date"]::-webkit-calendar-picker-indicator {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 18px;
+  padding: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.report-history .report-history-trigger {
+  justify-content: flex-start;
+  gap: 8px;
+}

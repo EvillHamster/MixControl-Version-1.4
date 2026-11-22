@@ -1,3 +1,4 @@
+import { DateFilterInput } from "./DateFilterInput";
 import { canEditMeasurement } from "../shared/permissions";
 import { UserGuide } from "./UserGuide";
 import { AccountSettings } from "./AccountSettings";
@@ -32,7 +33,7 @@ import {
   Plus,
   Search,
   Settings,
-  SlidersHorizontal,
+  Calendar,
   Trash2,
   X,
 } from "lucide-react";
@@ -55,6 +56,7 @@ import { Users } from "./Users";
 import { ImportDialog } from "./ImportDialog";
 import type { ImportKind } from "../shared/imports";
 import { MixtureTable } from "./MixtureTable";
+import "./typography.css";
 const today = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -748,7 +750,12 @@ function App() {
                           }
                           onClick={() => setDateOpen(!dateOpen)}
                         >
-                          <SlidersHorizontal size={15} />
+                          <Calendar
+                            size={16}
+                            strokeWidth={1.6}
+                            className="date-filter-icon"
+                            aria-hidden="true"
+                          />
                           {from || to ? "Период выбран" : "Все даты"}
                           <ChevronDown size={13} />
                         </button>
@@ -761,8 +768,7 @@ function App() {
                                 label="Очистить дату с"
                                 onClear={() => filterChange(() => setFrom(""))}
                               >
-                                <input
-                                  type="date"
+                                <DateFilterInput
                                   value={from}
                                   max={to || undefined}
                                   onChange={(e) =>
@@ -778,8 +784,7 @@ function App() {
                                 label="Очистить дату по"
                                 onClear={() => filterChange(() => setTo(""))}
                               >
-                                <input
-                                  type="date"
+                                <DateFilterInput
                                   value={to}
                                   min={from || undefined}
                                   onChange={(e) =>
@@ -1035,13 +1040,12 @@ function App() {
                   </div>
                 ) : null}
                 <div className="table-footer">
-                  <span>
-                    {data.total
-                      ? `${(page - 1) * 15 + 1}–${Math.min(page * 15, data.total)} из ${data.total} записей`
-                      : "0 записей"}
-                  </span>
+                  <span>Всего записей: {number(data.total)}</span>
                   <div className="pagination">
-                    <span>По 15 на странице</span>
+                    <span>
+                      Страница {page} из{" "}
+                      {Math.max(1, Math.ceil(data.total / 15))}
+                    </span>
                     <button
                       title="Предыдущая страница"
                       disabled={page === 1 || loading}
@@ -1060,13 +1064,6 @@ function App() {
                   </div>
                 </div>
               </section>
-              <div className="journal-note">
-                <span>
-                  <span className="lock-dot" />
-                  Нормативы сохраняются на момент создания записи
-                </span>
-                <span>Все температуры указаны в °C</span>
-              </div>
             </>
           ) : tab === "reports" ? (
             <Reports revision={revision} />
@@ -1267,6 +1264,13 @@ function App() {
     </div>
   );
 }
+function RequiredFieldNote({ invalid, id }: { invalid: boolean; id: string }) {
+  return invalid ? (
+    <small id={id} className="required-field-note">
+      Обязательно к заполнению
+    </small>
+  ) : null;
+}
 function RecordForm({
   record,
   mixtures,
@@ -1288,6 +1292,7 @@ function RecordForm({
     ),
     [error, setError] = useState(""),
     [saving, setSaving] = useState(false);
+  const hintId = React.useId();
   const mix = mixtures.find((m) => m.id === mixtureId);
   const norm = record && record.mixtureId === mixtureId ? record : mix;
   const actual = fact === "" ? null : Number(fact);
@@ -1387,16 +1392,28 @@ function RecordForm({
             placeholder="Например, 0123456"
             className={!/^[0-9]{7}$/.test(sup) ? "invalid" : ""}
             aria-invalid={!/^[0-9]{7}$/.test(sup) || undefined}
+            aria-describedby={
+              !/^[0-9]{7}$/.test(sup) && !foreignRecord
+                ? hintId + "-sup"
+                : undefined
+            }
           />
           <small>
             Ровно 7 цифр. Повторные измерения с тем же SUP разрешены.
           </small>
+          <RequiredFieldNote
+            id={hintId + "-sup"}
+            invalid={!/^[0-9]{7}$/.test(sup) && !foreignRecord}
+          />
         </label>
         <div className="span-2">
           <MixturePicker
             disabled={foreignRecord}
             required
             allowAll={false}
+            describedBy={
+              !mixtureId && !foreignRecord ? hintId + "-mixture" : undefined
+            }
             value={mixtureId}
             onChange={setMixtureId}
             catalog={mixtures
@@ -1405,6 +1422,10 @@ function RecordForm({
                 id: m.id,
                 name: m.name + (m.archived ? " (архив)" : ""),
               }))}
+          />
+          <RequiredFieldNote
+            id={hintId + "-mixture"}
+            invalid={!mixtureId && !foreignRecord}
           />
           {!mixtures.some((m) => !m.archived) && !record && (
             <small>Сначала добавьте смесь в раздел «База смесей».</small>
@@ -1444,8 +1465,15 @@ function RecordForm({
             required
             className={actualInvalid ? "invalid" : ""}
             aria-invalid={actualInvalid || undefined}
+            aria-describedby={
+              actualInvalid && !lockFact ? hintId + "-actual" : undefined
+            }
             value={fact}
             onChange={(e) => setFact(e.target.value)}
+          />
+          <RequiredFieldNote
+            id={hintId + "-actual"}
+            invalid={actualInvalid && !lockFact}
           />
           {lockFact && (
             <small>
@@ -1465,8 +1493,15 @@ function RecordForm({
             required
             className={equipmentInvalid ? "invalid" : ""}
             aria-invalid={equipmentInvalid || undefined}
+            aria-describedby={
+              equipmentInvalid && !lockFact ? hintId + "-equipment" : undefined
+            }
             value={equipmentText}
             onChange={(e) => setEquipmentText(e.target.value)}
+          />
+          <RequiredFieldNote
+            id={hintId + "-equipment"}
+            invalid={equipmentInvalid && !lockFact}
           />
         </label>
       </div>

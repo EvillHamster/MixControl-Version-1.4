@@ -11,6 +11,7 @@ export function MixturePicker({
   allowAll = true,
   disabled = false,
   required = false,
+  describedBy,
 }: {
   catalog: { id: string; name: string }[];
   value: string;
@@ -20,6 +21,7 @@ export function MixturePicker({
   allowAll?: boolean;
   disabled?: boolean;
   required?: boolean;
+  describedBy?: string;
 }) {
   const [open, setOpen] = useState(false),
     [search, setSearch] = useState(""),
@@ -73,6 +75,7 @@ export function MixturePicker({
         disabled={disabled}
         role="combobox"
         aria-required={required || undefined}
+        aria-describedby={describedBy}
         aria-invalid={required && !value ? true : undefined}
         aria-labelledby={id + "-label"}
         aria-expanded={open}

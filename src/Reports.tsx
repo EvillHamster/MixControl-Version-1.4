@@ -1,3 +1,4 @@
+import { DateFilterInput } from "./DateFilterInput";
 import { ReportHistory } from "./ReportHistory";
 import { useEffect, useState } from "react";
 import { Loader2, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
@@ -48,8 +49,7 @@ export function Reports({ revision }: { revision: number }) {
           <div className="workflow-controls">
             <label>
               Дата
-              <input
-                type="date"
+              <DateFilterInput
                 aria-label="Дата отчёта"
                 value={date || data?.date || ""}
                 max={data?.maxDate}

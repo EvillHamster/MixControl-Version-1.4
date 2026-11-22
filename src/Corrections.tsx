@@ -1,3 +1,4 @@
+import { DateFilterInput } from "./DateFilterInput";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Download,
@@ -223,9 +224,8 @@ export function Corrections({
               label="Очистить дату с корректировок"
               onClear={() => filter(() => setFrom(""))}
             >
-              <input
+              <DateFilterInput
                 aria-label="Корректировки: дата с"
-                type="date"
                 value={from}
                 onChange={(e) => filter(() => setFrom(e.target.value))}
               />
@@ -238,9 +238,8 @@ export function Corrections({
               label="Очистить дату по корректировок"
               onClear={() => filter(() => setTo(""))}
             >
-              <input
+              <DateFilterInput
                 aria-label="Корректировки: дата по"
-                type="date"
                 value={to}
                 onChange={(e) => filter(() => setTo(e.target.value))}
               />

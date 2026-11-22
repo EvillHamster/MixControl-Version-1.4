@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import type { User } from "../shared/domain";
 import { api, ApiError } from "./api";
 type Auth = {
@@ -144,7 +144,27 @@ function LoginForm({
   }
   return (
     <div className="auth-screen">
-      <form className="auth-card" onSubmit={submit}>
+      <form className="auth-card auth-login" onSubmit={submit}>
+        <div className="auth-login-brand" aria-label="MixControl">
+          <img
+            src="/favicon.svg"
+            width="34"
+            height="34"
+            alt=""
+            aria-hidden="true"
+          />
+          <span>
+            MixControl<span className="auth-login-brand-dot">.</span>
+          </span>
+        </div>
+        <header className="auth-login-heading">
+          <h1>{setup ? "Первый запуск" : "Вход в систему"}</h1>
+          <p>
+            {setup
+              ? "Создайте основную учётную запись KEYUSER."
+              : "Войдите в свою учётную запись."}
+          </p>
+        </header>
         {notice && <p role="status">{notice}</p>}
         {setup && (
           <label>
@@ -167,7 +187,6 @@ function LoginForm({
             minLength={3}
             maxLength={64}
             pattern="[A-Za-z0-9._\-]{3,64}"
-            placeholder="Латинские буквы и цифры"
             value={login}
             onChange={(e) => setLogin(e.target.value)}
             autoFocus={!setup}
@@ -179,7 +198,7 @@ function LoginForm({
           autoComplete={setup ? "new-password" : "current-password"}
           minLength={4}
           maxLength={128}
-          placeholder={setup ? "Не менее 4 символов" : "Введите пароль"}
+          placeholder={setup ? "Не менее 4 символов" : ""}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
@@ -200,11 +219,7 @@ function LoginForm({
           </div>
         )}
         <button className="button primary full" disabled={busy}>
-          {busy ? (
-            <Loader2 className="spin" size={17} />
-          ) : (
-            <ArrowRight size={17} />
-          )}{" "}
+          {busy && <Loader2 className="spin" size={17} />}
           {setup ? "Создать KEYUSER" : "Войти"}
         </button>
       </form>

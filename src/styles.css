@@ -802,24 +802,10 @@ tbody tr:hover {
   display: grid;
   place-items: center;
 }
-.journal-note {
-  margin: 17px 2px 30px;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: #a1a6ad;
-  font-size: 9px;
-}
 .journal-note > span {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-.lock-dot {
-  width: 5px;
-  height: 5px;
-  background: #a8b1bd;
-  border-radius: 2px;
 }
 .page-footer {
   margin-top: auto;
@@ -1543,12 +1529,6 @@ input.invalid {
   .pagination {
     gap: 5px;
   }
-  .journal-note {
-    flex-direction: column;
-    gap: 9px;
-    margin-bottom: 30px;
-    font-size: 8px;
-  }
   .page-footer > span:last-child {
     display: none;
   }
@@ -1613,6 +1593,6 @@ input.invalid {
 .record-form input.invalid:focus,
 .record-form .mixture-picker-trigger[aria-invalid="true"] {
   border-color: #dc4444;
-  background: #fff5f5;
+  background: #fff;
   outline-color: #dc4444;
 }

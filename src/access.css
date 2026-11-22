@@ -341,10 +341,6 @@ th button {
   }
 }
 
-.measurement-table,
-.measurement-table * {
-  font-size: 12px !important;
-}
 .auth-screen {
   justify-content: center;
 }
@@ -553,4 +549,61 @@ th button {
 }
 .password-field-toggle:focus-visible {
   outline-offset: -2px;
+}
+
+/* Login card, matching the application's own brand. */
+.auth-card.auth-login {
+  width: 420px;
+  padding: 32px;
+}
+.auth-login-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 36px;
+  color: #24344e;
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -1px;
+}
+.auth-login-brand img {
+  flex: 0 0 34px;
+}
+.auth-login-brand-dot {
+  color: #2563eb;
+}
+.auth-login .auth-login-heading h1 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.25;
+  letter-spacing: -0.8px;
+  color: #24344e;
+  font-weight: 700;
+}
+.auth-login-heading p {
+  margin: 14px 0 26px;
+  color: #8c9dbb;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.auth-login > label,
+.auth-login > .password-field {
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+.auth-login input {
+  height: 44px;
+  border-color: #d8e0ee;
+}
+.auth-login > .button {
+  height: 44px;
+  font-size: 14px;
+}
+@media (max-width: 480px) {
+  .auth-screen {
+    padding: 24px 16px;
+  }
+  .auth-card.auth-login {
+    padding: 28px;
+  }
 }
