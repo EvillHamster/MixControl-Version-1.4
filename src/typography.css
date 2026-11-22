@@ -304,7 +304,8 @@ td,
 .record-form .required-field-note {
   display: block;
   margin-top: 6px;
-  color: #ef4444;
+  color: #c24f48;
   font-size: 12px;
+  font-weight: 400;
   line-height: 1.5;
 }

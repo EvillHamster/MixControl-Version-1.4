@@ -1590,9 +1590,12 @@ input.invalid {
 
 /* Required fields stay marked until a valid value is entered. */
 .record-form input.invalid,
-.record-form input.invalid:focus,
 .record-form .mixture-picker-trigger[aria-invalid="true"] {
-  border-color: #dc4444;
+  border-color: #dce1e7;
   background: #fff;
-  outline-color: #dc4444;
+}
+.record-form input.invalid:focus,
+.record-form .mixture-picker-trigger[aria-invalid="true"]:focus {
+  border-color: #8da8ce;
+  outline-color: #8da8ce;
 }
