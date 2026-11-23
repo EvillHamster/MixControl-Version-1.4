@@ -9,6 +9,7 @@ const migrations = [
   "004-retain-corrections.sql",
   "005-persistent-sessions.sql",
   "006-repeat-sup.sql",
+  "007-sync-mixture-norms.sql",
 ];
 export async function migrate() {
   return transaction(async (db) => {

@@ -1,3 +1,4 @@
+import type { Measurement } from "../shared/domain.js";
 import "dotenv/config";
 import assert from "node:assert/strict";
 import { once } from "node:events";
@@ -1308,6 +1309,337 @@ test("MixControl 1.6 end-to-end — SQL Server 2019", async (t) => {
         ).json();
         assert.equal(remaining.total, 3);
         assert.ok(remaining.records.every((r: any) => !mbSups.has(r.sup)));
+      },
+    );
+
+    await t.test(
+      "Лимиты смеси обновляют все измерения, OK/NOK, отчёты и аудит",
+      async () => {
+        const createMixture = async (name: string, min: number, max: number) =>
+          (
+            await (
+              await expect(
+                send(
+                  "/mixtures",
+                  "POST",
+                  { name, tMin: min, tMax: max },
+                  admin,
+                ),
+                201,
+              )
+            ).json()
+          ).id;
+        const normA = await createMixture("Нормативы A", 10, 30);
+        const normB = await createMixture("Нормативы B", 0, 100);
+        const created: Measurement[] = [];
+        for (const [sup, actual, equipment] of [
+          ["9911001", 20, 21],
+          ["9911001", 29, 29],
+          ["9911002", 35, 29],
+        ] as const)
+          created.push(
+            await (
+              await expect(
+                send(
+                  "/records",
+                  "POST",
+                  { sup, mixtureId: normA, actual, equipment },
+                  admin,
+                ),
+                201,
+              )
+            ).json(),
+          );
+        const unrelated = await (
+          await expect(
+            send(
+              "/records",
+              "POST",
+              { sup: "9911003", mixtureId: normB, actual: 20, equipment: 20 },
+              admin,
+            ),
+            201,
+          )
+        ).json();
+        await pool.query(
+          "UPDATE dbo.measurements SET date=$1 WHERE mixture_id=$2 OR mixture_id=$3",
+          [oldDay, normA, normB],
+        );
+        const list = async (id = normA) =>
+          (
+            await (
+              await expect(
+                send("/records?mixtureId=" + id, "GET", undefined, admin),
+                200,
+              )
+            ).json()
+          ).records;
+        const report = async () =>
+          await (
+            await expect(
+              send("/reports?date=" + oldDay, "GET", undefined, admin),
+              200,
+            )
+          ).json();
+        const update = (min: number, max: number) =>
+          expect(
+            send(
+              "/mixtures/" + normA,
+              "PUT",
+              { name: "Нормативы A", tMin: min, tMax: max },
+              admin,
+            ),
+            200,
+          );
+        // Imported historical SUPs may predate the seven-digit rule.
+        await pool.query(
+          "ALTER TABLE dbo.measurements NOCHECK CONSTRAINT measurements_sup_seven_digits; UPDATE dbo.measurements SET sup=N'LEGACY-NORMS' WHERE id=$1; ALTER TABLE dbo.measurements WITH NOCHECK CHECK CONSTRAINT measurements_sup_seven_digits;",
+          [created[1].id],
+        );
+        const before = await list(),
+          otherBefore = await list(normB),
+          reportBefore = await report();
+        const correction = (
+          await (
+            await expect(
+              send("/corrections?search=9911002", "GET", undefined, admin),
+              200,
+            )
+          ).json()
+        ).rows[0];
+        const revisionBefore = (
+          await pool.query(
+            "SELECT revision FROM dbo.change_revision WHERE topic='measurements'",
+          )
+        ).rows[0].revision;
+        await update(22, 28);
+        let rows = await list();
+        assert.equal(rows.length, 3);
+        assert.ok(
+          rows.every(
+            (r: any) => r.tMin === 22 && r.tMax === 28 && r.status === "NOK",
+          ),
+        );
+        for (const r of rows) {
+          const old = before.find((o: any) => o.id === r.id);
+          assert.deepEqual(
+            [r.actual, r.equipment, r.date, r.createdBy, r.sup],
+            [old.actual, old.equipment, old.date, old.createdBy, old.sup],
+          );
+          assert.equal(r.version, old.version + 1);
+        }
+        assert.deepEqual(await list(normB), otherBefore);
+        assert.notEqual(
+          (
+            await pool.query(
+              "SELECT revision FROM dbo.change_revision WHERE topic='measurements'",
+            )
+          ).rows[0].revision,
+          revisionBefore,
+        );
+        const changedReport = await report();
+        assert.equal(changedReport.total, reportBefore.total);
+        assert.equal(changedReport.ok, reportBefore.ok - 2);
+        assert.equal(changedReport.nok, reportBefore.nok + 2);
+        assert.ok(changedReport.version > reportBefore.version);
+        assert.ok(
+          changedReport.rows
+            .filter((r: any) => created.some((c) => c.id === r.id))
+            .every((r: any) => r.tMin === 22 && r.tMax === 28),
+        );
+        await expect(
+          send(
+            "/records/" + created[0].id,
+            "PUT",
+            {
+              sup: "9911001",
+              mixtureId: normA,
+              actual: 20,
+              equipment: 21,
+              version: created[0].version,
+            },
+            admin,
+          ),
+          409,
+        );
+        const auditRows = (
+          await pool.query(
+            "SELECT actor_id,before_data,after_data,details FROM dbo.audit_log WHERE action='record.norms_updated' AND entity_id IN(SELECT LOWER(CONVERT(varchar(36),id)) FROM dbo.measurements WHERE mixture_id=$1)",
+            [normA],
+          )
+        ).rows;
+        assert.equal(auditRows.length, 3);
+        assert.ok(
+          auditRows.every(
+            (a: any) =>
+              a.actor_id === adminUser.id &&
+              a.before_data.tMin === 10 &&
+              a.after_data.tMin === 22 &&
+              a.details.mixtureId === normA,
+          ),
+        );
+        await update(0, 40);
+        rows = await list();
+        assert.ok(
+          rows.every(
+            (r: any) => r.status === "OK" && r.tMin === 0 && r.tMax === 40,
+          ),
+        );
+        const expanded = await report();
+        assert.equal(expanded.ok, reportBefore.ok + 1);
+        assert.equal(expanded.nok, reportBefore.nok - 1);
+        const correctionAfter = (
+          await (
+            await expect(
+              send("/corrections/" + correction.id, "GET", undefined, admin),
+              200,
+            )
+          ).json()
+        ).correction;
+        assert.deepEqual(correctionAfter, correction);
+        const versions = rows.map((r: any) => [r.id, r.version]);
+        await update(0, 40);
+        assert.deepEqual(
+          (await list()).map((r: any) => [r.id, r.version]),
+          versions,
+        );
+        const normKey = cookie(
+          await expect(sign("newprimary", "fresh-pass"), 200),
+        );
+        await expect(
+          send(
+            "/corrections/" + correction.id + "?version=" + correction.version,
+            "DELETE",
+            undefined,
+            normKey,
+          ),
+          204,
+        );
+        await update(0, 40);
+        await expect(
+          send("/corrections/" + correction.id, "GET", undefined, normKey),
+          404,
+        );
+        assert.equal(
+          (
+            await (
+              await expect(
+                send("/corrections?search=9911002", "GET", undefined, normKey),
+                200,
+              )
+            ).json()
+          ).total,
+          0,
+        );
+        const activeEmployee = cookie(await expect(sign("employee_1"), 200));
+        await expect(
+          send(
+            "/mixtures/" + normA,
+            "PUT",
+            { name: "Нормативы A", tMin: 50, tMax: 10 },
+            admin,
+          ),
+          400,
+        );
+        assert.deepEqual(
+          (await list()).map((r: any) => [r.id, r.version]),
+          versions,
+        );
+        const wb = new ExcelJS.Workbook(),
+          ws = wb.addWorksheet("Смеси");
+        ws.addRow(["Название смеси", "T min", "T max"]);
+        ws.addRow(["Нормативы A", 15, 25]);
+        const preview = await (
+          await expect(
+            fetch(base + "/mixtures/import/preview", {
+              method: "POST",
+              headers: { Cookie: admin, "Content-Type": workbookType },
+              body: Buffer.from(await wb.xlsx.writeBuffer()),
+            }),
+            200,
+          )
+        ).json();
+        assert.equal(preview.errorCount, 0);
+        await expect(
+          send("/mixtures/import/confirm", "POST", { id: preview.id }, admin),
+          200,
+        );
+        rows = await list();
+        assert.ok(rows.every((r: any) => r.tMin === 15 && r.tMax === 25));
+        assert.equal(
+          rows.find((r: any) => r.id === created[0].id).status,
+          "OK",
+        );
+        assert.equal(
+          rows.find((r: any) => r.id === created[1].id).status,
+          "NOK",
+        );
+        await pool.query(
+          "UPDATE dbo.mixtures SET t_min=10,t_max=50 WHERE id=$1",
+          [normA],
+        );
+        assert.ok(
+          (await list()).every(
+            (r: any) => r.status === "OK" && r.tMin === 10 && r.tMax === 50,
+          ),
+        );
+        // Simulate upgrading an existing database whose historical snapshots differ.
+        await pool.query(
+          "UPDATE dbo.measurements SET t_min=0,t_max=5 WHERE id=$1",
+          [created[0].id],
+        );
+        await pool.query("DELETE FROM dbo.schema_migrations WHERE version=7");
+        await run("server/migrate.ts");
+        rows = await list();
+        assert.ok(
+          rows.every(
+            (r: any) => r.tMin === 10 && r.tMax === 50 && r.status === "OK",
+          ),
+        );
+        assert.deepEqual(
+          [
+            rows.find((r: any) => r.id === created[0].id).actual,
+            rows.find((r: any) => r.id === created[0].id).equipment,
+          ],
+          [20, 21],
+        );
+        // Multi-row SQL edits must synchronize both mixtures without touching others.
+        const untouched = (
+          await pool.query(
+            "SELECT id,t_min,t_max,actual,equipment,version FROM dbo.measurements WHERE mixture_id=$1 ORDER BY id",
+            [mix],
+          )
+        ).rows;
+        await pool.query(
+          "UPDATE dbo.mixtures SET t_min=30,t_max=60 WHERE id=$1 OR id=$2",
+          [normA, normB],
+        );
+        assert.ok(
+          (await list()).every(
+            (r: any) => r.tMin === 30 && r.tMax === 60 && r.status === "NOK",
+          ),
+        );
+        const otherAfter = await list(normB);
+        assert.equal(otherAfter[0].id, unrelated.id);
+        assert.equal(otherAfter[0].status, "NOK");
+        assert.deepEqual(
+          (
+            await pool.query(
+              "SELECT id,t_min,t_max,actual,equipment,version FROM dbo.measurements WHERE mixture_id=$1 ORDER BY id",
+              [mix],
+            )
+          ).rows,
+          untouched,
+        );
+        await expect(
+          send(
+            "/mixtures/" + normA,
+            "PUT",
+            { name: "Нормативы A", tMin: 0, tMax: 40 },
+            activeEmployee,
+          ),
+          403,
+        );
       },
     );
 
