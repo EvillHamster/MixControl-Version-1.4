@@ -1,4 +1,5 @@
 export type ImportKind = "records" | "mixtures";
+export type RecordImportMode = "standard" | "restore";
 export interface ImportIssue {
   row: number;
   sup: string;

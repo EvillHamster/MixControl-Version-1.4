@@ -174,7 +174,17 @@ for (const kind of ["records", "mixtures"] as const) {
     async (req, res) => {
       if (!Buffer.isBuffer(req.body))
         return res.status(400).json({ message: "Выберите файл Excel (.xlsx)" });
-      res.json(await previewImport(req.body, kind, currentUser(res)));
+      const mode = z
+        .enum(["standard", "restore"])
+        .default("standard")
+        .parse(req.query.mode);
+      if (kind !== "records" && mode !== "standard")
+        return res
+          .status(400)
+          .json({
+            message: "Режим восстановления доступен только для журнала",
+          });
+      res.json(await previewImport(req.body, kind, currentUser(res), mode));
     },
   );
   app.post(

@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Upload, Loader2, X } from "lucide-react";
-import type { ImportKind, ImportPreview } from "../shared/imports";
+import type {
+  ImportKind,
+  ImportPreview,
+  RecordImportMode,
+} from "../shared/imports";
 import { api } from "./api";
 export function ImportDialog({
   kind,
@@ -15,6 +19,8 @@ export function ImportDialog({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [page, setPage] = useState(1);
+  const [mode, setMode] = useState<RecordImportMode>("standard");
+  const [file, setFile] = useState<File>();
   const root = useRef<HTMLElement>(null);
   useEffect(() => {
     const focused = document.activeElement as HTMLElement,
@@ -32,7 +38,7 @@ export function ImportDialog({
       if (e.key === "Tab") {
         const nodes = Array.from(
           root.current?.querySelectorAll<HTMLElement>(
-            "button:not(:disabled),input:not(:disabled)",
+            "button:not(:disabled),input:not(:disabled),select:not(:disabled)",
           ) ?? [],
         );
         if (e.shiftKey && document.activeElement === nodes[0]) {
@@ -47,7 +53,8 @@ export function ImportDialog({
     document.addEventListener("keydown", key);
     return () => document.removeEventListener("keydown", key);
   }, [busy, onClose]);
-  async function upload(file?: File) {
+  async function upload(file?: File, importMode = mode) {
+    setFile(file);
     setPreview(null);
     setError("");
     setPage(1);
@@ -62,14 +69,17 @@ export function ImportDialog({
     }
     setBusy(true);
     try {
-      const response = await fetch("/api/" + kind + "/import/preview", {
-        method: "POST",
-        headers: {
-          "Content-Type":
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      const response = await fetch(
+        "/api/" + kind + "/import/preview?mode=" + importMode,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          },
+          body: file,
         },
-        body: file,
-      });
+      );
       const body = await response.json();
       if (response.status === 401)
         window.dispatchEvent(new Event("mixcontrol:unauthorized"));
@@ -134,6 +144,23 @@ export function ImportDialog({
           Загрузите .xlsx, проверьте результат и подтвердите сохранение. До
           подтверждения данные не изменяются.
         </p>
+        {kind === "records" && (
+          <label className="import-file">
+            Режим импорта
+            <select
+              value={mode}
+              disabled={busy}
+              onChange={(e) => {
+                const selected = e.target.value as RecordImportMode;
+                setMode(selected);
+                void upload(file, selected);
+              }}
+            >
+              <option value="standard">Обычный импорт</option>
+              <option value="restore">Перенос / восстановление</option>
+            </select>
+          </label>
+        )}
         <label className="import-file">
           Файл Excel (до 5 МБ, до 5000 строк)
           <input
@@ -151,6 +178,16 @@ export function ImportDialog({
             ? "Столбцы: Дата, SUP, Смесь, T min, T max, T(fact), Итог. Для новых записей T(обор) обязателен. Без ID измерения каждая строка создаёт отдельную запись, даже при повторном SUP. Для обновления укажите ID измерения из экспорта; без T(обор) сохраняется прежнее значение. Итог рассчитывается по обеим температурам."
             : "Столбцы: Название смеси, T min, T max, Статус (необязательно: В работе / В архиве). Совпадение названий обновляет существующую смесь."}
         </p>
+        {kind === "records" && mode === "restore" && (
+          <p className="import-hint">
+            Для архива из другой или прежней базы: отсутствующие ID измерений
+            будут сохранены при добавлении, существующие — обновлены. Смеси
+            должны быть заранее добавлены с теми же названиями. Сначала
+            импортируйте базу смесей. Без ID повторная загрузка создаёт новые
+            записи. Excel журнала не переносит пользователей и историю действий;
+            для полной копии используйте резервную копию базы.
+          </p>
+        )}
         {busy && (
           <div role="status" className="import-progress">
             <Loader2 size={18} className="spin" />
@@ -180,8 +217,9 @@ export function ImportDialog({
             </div>
             {!!errors.length && (
               <p role="alert" className="form-error">
-                Импорт запрещён. Исправьте указанные строки в Excel и загрузите
-                файл повторно.
+                {kind === "records"
+                  ? "Импорт запрещён. Проверьте режим импорта и указанные строки. Для переноса архива выберите «Перенос / восстановление»."
+                  : "Импорт запрещён. Исправьте указанные строки в Excel и загрузите файл повторно."}
               </p>
             )}
             <div className="table-scroll import-preview">

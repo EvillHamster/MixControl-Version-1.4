@@ -1035,6 +1035,221 @@ test("MixControl 1.6 end-to-end — SQL Server 2019", async (t) => {
       },
     );
     await t.test(
+      "Экспорт → импорт и восстановление архива с отсутствующими ID",
+      async () => {
+        const m = await (
+          await expect(
+            send(
+              "/mixtures",
+              "POST",
+              {
+                name: "Архив Excel roundtrip",
+                tMin: 10,
+                tMax: 30,
+              },
+              admin,
+            ),
+            201,
+          )
+        ).json();
+        const originals: Measurement[] = [];
+        for (const actual of [20, 35]) {
+          originals.push(
+            await (
+              await expect(
+                send(
+                  "/records",
+                  "POST",
+                  {
+                    sup: "0098100",
+                    mixtureId: m.id,
+                    actual,
+                    equipment: 20,
+                  },
+                  employee,
+                ),
+                201,
+              )
+            ).json(),
+          );
+        }
+        await pool.query(
+          "UPDATE dbo.measurements SET date=$1 WHERE mixture_id=$2",
+          [oldDay, m.id],
+        );
+        const downloaded = Buffer.from(
+          await (
+            await expect(
+              send(
+                "/records/export?mixtureId=" +
+                  m.id +
+                  "&from=" +
+                  oldDay +
+                  "&to=" +
+                  oldDay,
+                "GET",
+                undefined,
+                key,
+              ),
+              200,
+            )
+          ).arrayBuffer(),
+        );
+        const book = new ExcelJS.Workbook();
+        await book.xlsx.load(downloaded as any);
+        assert.equal(book.worksheets[0].rowCount, 3);
+        assert.equal(book.worksheets[0].getRow(2).getCell(2).value, "0098100");
+        const upload = async (
+          bytes = downloaded,
+          mode = "standard",
+          token = key,
+        ) =>
+          (
+            await expect(
+              fetch(base + "/records/import/preview?mode=" + mode, {
+                method: "POST",
+                headers: { Cookie: token, "Content-Type": workbookType },
+                body: bytes,
+              }),
+              token === employee ? 403 : 200,
+            )
+          ).json();
+        const commit = (id: string) =>
+          expect(send("/records/import/confirm", "POST", { id }, key), 200);
+        const read = async () =>
+          (
+            await (
+              await expect(
+                send("/records?mixtureId=" + m.id, "GET", undefined, key),
+                200,
+              )
+            ).json()
+          ).records as Measurement[];
+        const roundtrip = await upload();
+        assert.equal(roundtrip.errorCount, 0, JSON.stringify(roundtrip.errors));
+        assert.equal(roundtrip.updated, 2);
+        assert.equal(roundtrip.added, 0);
+        await commit(roundtrip.id);
+        const before = await read();
+        assert.equal(before.length, 2);
+        for (const r of before) {
+          assert.equal(r.sup, "0098100");
+          assert.equal(r.date, oldDay);
+          assert.equal(r.equipment, 20);
+          assert.equal(r.status, r.actual === 20 ? "OK" : "NOK");
+          await expect(
+            send(
+              "/records/" + r.id + "?version=" + r.version,
+              "DELETE",
+              undefined,
+              key,
+            ),
+            204,
+          );
+        }
+        const missing = await upload();
+        assert.equal(missing.errorCount, 2);
+        assert.match(missing.errors[0].message, /Перенос.*восстановление/);
+        assert.equal((await read()).length, 0);
+        const restored = await upload(downloaded, "restore");
+        assert.equal(restored.errorCount, 0, JSON.stringify(restored.errors));
+        assert.equal(restored.added, 2);
+        await commit(restored.id);
+        const after = await read();
+        assert.deepEqual(
+          after.map((r) => r.id).sort(),
+          before.map((r) => r.id).sort(),
+        );
+        for (const r of after) {
+          const old = before.find((o) => o.id === r.id)!;
+          for (const field of [
+            "date",
+            "sup",
+            "mixtureId",
+            "tMin",
+            "tMax",
+            "actual",
+            "equipment",
+            "status",
+          ] as const)
+            assert.equal(r[field], old[field], field);
+        }
+        const repeat = await upload(downloaded, "restore");
+        assert.equal(repeat.added, 0);
+        assert.equal(repeat.updated, 2);
+        await commit(repeat.id);
+        assert.equal((await read()).length, 2);
+        const equipmentOnly = new ExcelJS.Workbook();
+        await equipmentOnly.xlsx.load(downloaded as any);
+        equipmentOnly.worksheets[0].getRow(2).getCell(6).value = 20;
+        equipmentOnly.worksheets[0].getRow(2).getCell(7).value = 35;
+        equipmentOnly.worksheets[0].getRow(2).getCell(8).value = "OK";
+        const recalculated = await upload(
+          Buffer.from(await equipmentOnly.xlsx.writeBuffer()),
+          "restore",
+        );
+        assert.equal(recalculated.errorCount, 0);
+        assert.equal(recalculated.rows[0].status, "NOK");
+        const invalid = new ExcelJS.Workbook();
+        await invalid.xlsx.load(downloaded as any);
+        invalid.worksheets[0].getRow(2).getCell(9).value = "bad-id";
+        const bad = await upload(
+          Buffer.from(await invalid.xlsx.writeBuffer()),
+          "restore",
+        );
+        assert.equal(bad.errorCount, 1);
+        assert.equal(bad.id, undefined);
+        const duplicate = new ExcelJS.Workbook();
+        await duplicate.xlsx.load(downloaded as any);
+        duplicate.worksheets[0].getRow(3).getCell(9).value =
+          duplicate.worksheets[0].getRow(2).getCell(9).value;
+        assert.equal(
+          (
+            await upload(
+              Buffer.from(await duplicate.xlsx.writeBuffer()),
+              "restore",
+            )
+          ).errorCount,
+          2,
+        );
+        await upload(downloaded, "restore", employee);
+        const pending = await upload(downloaded, "restore");
+        const row = (await read())[0];
+        await expect(
+          send(
+            "/records/" + row.id,
+            "PUT",
+            {
+              sup: row.sup,
+              mixtureId: row.mixtureId,
+              actual: 22,
+              equipment: 20,
+              version: row.version,
+            },
+            admin,
+          ),
+          200,
+        );
+        await expect(
+          send("/records/import/confirm", "POST", { id: pending.id }, key),
+          409,
+        );
+        const audits = (
+          await pool.query(
+            "SELECT details FROM dbo.audit_log WHERE action='import.row.create' AND entity_id=$1",
+            [row.id],
+          )
+        ).rows;
+        assert.ok(
+          audits.some(
+            (a) =>
+              a.details.mode === "restore" && a.details.restoredId === row.id,
+          ),
+        );
+      },
+    );
+
+    await t.test(
       "Пагинация, SSE, блокировка редактирования, переиспользование логина",
       async () => {
         const controller = new AbortController();

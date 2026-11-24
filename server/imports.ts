@@ -13,6 +13,7 @@ import {
   type User,
 } from "../shared/domain.js";
 import type {
+  RecordImportMode,
   ImportKind,
   ImportPreview,
   ImportIssue,
@@ -176,6 +177,7 @@ async function plan(
   kind: ImportKind,
   source: Source[],
   locked = false,
+  mode: RecordImportMode = "standard",
 ) {
   const mixtures = (
     await c.query(
@@ -269,9 +271,9 @@ async function plan(
       } else {
         if (recordId && !databaseIdSchema.safeParse(recordId).success)
           throw new Error("Некорректный ID измерения");
-        if (recordId && !old)
+        if (recordId && !old && mode !== "restore")
           throw new Error(
-            "Измерение с указанным ID не найдено. Для нового измерения оставьте ID пустым.",
+            "ID измерения отсутствует в этой базе. Для переноса архива выберите режим «Перенос / восстановление». Для новой попытки оставьте ID пустым.",
           );
         if (!/^[0-9]{7}$/.test(sup))
           throw new Error(
@@ -290,7 +292,7 @@ async function plan(
               recordId +
               " уже зарегистрирована другая смесь. Запись не обновлена",
           );
-        if (!old && mix.archived)
+        if (!old && mix.archived && mode !== "restore")
           throw new Error(
             "Смесь «" +
               name +
@@ -320,6 +322,7 @@ async function plan(
           row: sourceRow.row,
           sup,
           name,
+          restoreId: !old && mode === "restore" && recordId ? recordId : null,
           date: date(v.date),
           tMin: norms.data.tMin,
           tMax: norms.data.tMax,
@@ -350,10 +353,11 @@ export async function previewImport(
   buffer: Buffer,
   kind: ImportKind,
   actor: User,
+  mode: RecordImportMode = "standard",
 ): Promise<ImportPreview> {
   const source = await readImport(buffer, kind);
   return transaction(async (c) => {
-    const preview = await plan(c, kind, source);
+    const preview = await plan(c, kind, source, false, mode);
     let id: string | undefined;
     if (!preview.errorCount)
       id = (
@@ -362,7 +366,11 @@ export async function previewImport(
           [
             actor.id,
             kind,
-            JSON.stringify({ source, fingerprint: fingerprint(preview.rows) }),
+            JSON.stringify({
+              source,
+              mode,
+              fingerprint: fingerprint(preview.rows),
+            }),
           ],
         )
       ).rows[0].id;
@@ -396,7 +404,13 @@ export async function confirmImport(id: string, kind: ImportKind, actor: User) {
         409,
         "Предпросмотр устарел, уже применён или недоступен. Загрузите файл повторно.",
       );
-    const checked = await plan(c, kind, job.payload.source, true);
+    const checked = await plan(
+      c,
+      kind,
+      job.payload.source,
+      true,
+      job.payload.mode ?? "standard",
+    );
     if (
       checked.errorCount ||
       fingerprint(checked.rows) !== job.payload.fingerprint
@@ -452,9 +466,11 @@ export async function confirmImport(id: string, kind: ImportKind, actor: User) {
               await c.query(
                 output(
                   "dbo.measurements",
-                  "INSERT INTO dbo.measurements(date,sup,mixture_id,mixture_name,t_min,t_max,actual,equipment,created_by) /*output*/ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                  r.restoreId
+                    ? "INSERT INTO dbo.measurements(date,sup,mixture_id,mixture_name,t_min,t_max,actual,equipment,created_by,id) /*output*/ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)"
+                    : "INSERT INTO dbo.measurements(date,sup,mixture_id,mixture_name,t_min,t_max,actual,equipment,created_by) /*output*/ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
                 ),
-                [...args, actor.id],
+                [...args, actor.id, ...(r.restoreId ? [r.restoreId] : [])],
               )
             ).rows[0];
       }
@@ -466,7 +482,12 @@ export async function confirmImport(id: string, kind: ImportKind, actor: User) {
         saved.id,
         r.old,
         saved,
-        { jobId: id, row: r.row },
+        {
+          jobId: id,
+          row: r.row,
+          mode: job.payload.mode ?? "standard",
+          restoredId: r.restoreId ?? null,
+        },
         r.sup ?? null,
       );
     }
