@@ -1250,6 +1250,139 @@ test("MixControl 1.6 end-to-end — SQL Server 2019", async (t) => {
     );
 
     await t.test(
+      "Исправленная дельта скрывает корректировку, удалённое измерение сохраняет историю",
+      async () => {
+        const baseline = (
+          await (
+            await expect(
+              send("/corrections/summary", "GET", undefined, key),
+              200,
+            )
+          ).json()
+        ).active;
+        let r = await (
+          await expect(
+            send("/records", "POST", input("0098200", 125, 120), employee),
+            201,
+          )
+        ).json();
+        const listing = async (view = "active") =>
+          await (
+            await expect(
+              send(
+                "/corrections?search=0098200&view=" + view,
+                "GET",
+                undefined,
+                key,
+              ),
+              200,
+            )
+          ).json();
+        const summary = async () =>
+          (
+            await (
+              await expect(
+                send("/corrections/summary", "GET", undefined, key),
+                200,
+              )
+            ).json()
+          ).active;
+        const edit = async (actual: number) => {
+          r = await (
+            await expect(
+              send(
+                "/records/" + r.id,
+                "PUT",
+                { ...input("0098200", actual, 120), version: r.version },
+                admin,
+              ),
+              200,
+            )
+          ).json();
+        };
+        const first = (await listing()).rows[0];
+        assert.ok(first);
+        assert.equal(await summary(), baseline + 1);
+        await edit(123);
+        assert.equal((await listing()).total, 0);
+        assert.equal(await summary(), baseline);
+        assert.equal(
+          (
+            await pool.query(
+              "SELECT id FROM dbo.corrective_actions WHERE id=$1",
+              [first.id],
+            )
+          ).rowCount,
+          1,
+        );
+        await edit(120);
+        assert.equal((await listing()).total, 0);
+        await edit(124);
+        assert.equal((await listing()).rows[0].id, first.id);
+        const task = (await listing()).rows[0];
+        await expect(
+          send(
+            "/corrections/" + task.id,
+            "PUT",
+            {
+              status: "DONE",
+              responsibleId: null,
+              workDone: "Проверено",
+              version: task.version,
+            },
+            key,
+          ),
+          200,
+        );
+        assert.equal((await listing("archive")).total, 1);
+        await edit(122);
+        assert.equal((await listing("archive")).total, 0);
+        const exported = await expect(
+          send(
+            "/corrections/export?search=0098200&view=archive",
+            "GET",
+            undefined,
+            key,
+          ),
+          200,
+        );
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.load(Buffer.from(await exported.arrayBuffer()) as any);
+        assert.equal(wb.worksheets[0].rowCount, 1);
+        await expect(
+          send(
+            "/records/" + r.id + "?version=" + r.version,
+            "DELETE",
+            undefined,
+            key,
+          ),
+          204,
+        );
+        const retained = (await listing("archive")).rows[0];
+        assert.equal(retained.id, first.id);
+        assert.equal(retained.sourceDeleted, true);
+        assert.equal(retained.workDone, "Проверено");
+        assert.equal(await summary(), baseline);
+        const history = await (
+          await expect(
+            send(
+              "/corrections/" + first.id + "/history",
+              "GET",
+              undefined,
+              key,
+            ),
+            200,
+          )
+        ).json();
+        assert.ok(
+          history.events.some((e: any) => e.kind === "measurement_changed"),
+        );
+        assert.ok(
+          history.events.some((e: any) => e.kind === "measurement_deleted"),
+        );
+      },
+    );
+    await t.test(
       "Пагинация, SSE, блокировка редактирования, переиспользование логина",
       async () => {
         const controller = new AbortController();

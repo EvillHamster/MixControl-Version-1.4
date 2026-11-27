@@ -85,6 +85,7 @@ function App() {
     [mixtures, setMixtures] = useState<Mixture[]>([]),
     [data, setData] = useState<Data>(emptyData),
     [loading, setLoading] = useState(true),
+    [hasLoaded, setHasLoaded] = useState(false),
     [error, setError] = useState(""),
     [toast, setToast] = useState("");
   const [search, setSearch] = useState(""),
@@ -164,6 +165,7 @@ function App() {
       .then(([r, m]) => {
         if (active) {
           setData(r);
+          setHasLoaded(true);
           setMixtures(m);
           if (page > 1 && r.records.length === 0) setPage((p) => p - 1);
         }
@@ -643,7 +645,7 @@ function App() {
                       <s.icon size={18} />
                     </div>
                     <div className="stat-value">
-                      {loading ? "—" : number(s.value)}
+                      {hasLoaded ? number(s.value) : "—"}
                       <span>
                         {s.style === "good"
                           ? "OK"

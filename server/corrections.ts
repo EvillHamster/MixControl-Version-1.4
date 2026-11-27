@@ -12,6 +12,9 @@ import {
 import { databaseIdSchema, type User } from "../shared/domain.js";
 const columns =
   'c.id,c.measurement_key AS "measurementKey",c.measurement_id AS "measurementId",c.date,c.sup,c.mixture_name AS "mixtureName",c.actual,c.equipment,c.delta,c.initial_data AS "initialData",c.source_deleted AS "sourceDeleted",c.status,c.responsible_id AS "responsibleId",(SELECT name+CASE WHEN deleted_at IS NOT NULL THEN N\' (удалён)\' WHEN active=0 THEN N\' (отключён)\' ELSE \'\' END FROM users WHERE id=c.responsible_id) AS "responsibleName",c.work_done AS "workDone",c.detected_at AS "detectedAt",c.completed_at AS "completedAt",c.updated_at AS "updatedAt",c.version';
+// Deleted source measurements retain their corrective history regardless of delta.
+const visibleCorrection =
+  "(c.source_deleted=1 OR EXISTS(SELECT 1 FROM dbo.measurements m WHERE m.id=c.measurement_id AND m.delta>3))";
 function filters(input: Record<string, unknown>) {
   const q = z
     .object({
@@ -26,7 +29,7 @@ function filters(input: Record<string, unknown>) {
   if (q.from && q.to && q.from > q.to)
     fail(400, "Начальная дата не может быть позже конечной");
   const values: unknown[] = [],
-    parts: string[] = [];
+    parts: string[] = [visibleCorrection];
   const add = (sql: string, v: unknown) => {
     values.push(v);
     parts.push(sql.replace("?", "$" + values.length));
@@ -50,7 +53,8 @@ export const correctionRepository = {
   async summary() {
     return (
       await pool.query(
-        "SELECT COUNT(*) AS active FROM corrective_actions WHERE status IN ('NOT_STARTED','IN_PROGRESS')",
+        "SELECT COUNT(*) AS active FROM corrective_actions c WHERE c.status IN ('NOT_STARTED','IN_PROGRESS') AND " +
+          visibleCorrection,
       )
     ).rows[0];
   },
@@ -188,19 +192,26 @@ export const correctionRepository = {
     await transaction(async (c) => {
       await assertActor(c, actor, true);
       await lock(c, "workflow");
-      const current = (await c.query(
-        "SELECT role FROM dbo.users WITH (HOLDLOCK) WHERE id=$1 AND active=1 AND deleted_at IS NULL",
-        [actor.id],
-      )).rows[0];
+      const current = (
+        await c.query(
+          "SELECT role FROM dbo.users WITH (HOLDLOCK) WHERE id=$1 AND active=1 AND deleted_at IS NULL",
+          [actor.id],
+        )
+      ).rows[0];
       if (current?.role !== "KEYUSER")
         fail(403, "Удалять корректировки может только KEYUSER");
-      const old = (await c.query(
-        "SELECT id,version FROM dbo.corrective_actions WITH (UPDLOCK,HOLDLOCK) WHERE id=$1",
-        [id],
-      )).rows[0];
+      const old = (
+        await c.query(
+          "SELECT id,version FROM dbo.corrective_actions WITH (UPDLOCK,HOLDLOCK) WHERE id=$1",
+          [id],
+        )
+      ).rows[0];
       if (!old) fail(404, "Корректировка не найдена");
       if (old.version !== version)
-        fail(409, "Корректировка изменена. Обновите список и повторите удаление.");
+        fail(
+          409,
+          "Корректировка изменена. Обновите список и повторите удаление.",
+        );
       // The SQL trigger records deletion in the technical audit and notifies SSE.
       await c.query("DELETE FROM dbo.corrective_actions WHERE id=$1", [id]);
     });
